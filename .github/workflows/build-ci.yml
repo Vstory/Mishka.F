@@ -59,7 +59,8 @@ env:
   VERSION_FILE: buildSrc/src/main/kotlin/ProjectConfig.kt
   # 基数：改用单调的运行序号后必须从高于历史上所有提交数的值起步，否则第一次改用又是一次降级，
   #   装机仍要强制安装（提交数会被 squash 合并、分支切换拉低，所以不能拿它当 versionCode）
-  CI_VERSION_CODE_BASE: '100000'
+  #   5000 = 上游提交数（244）留余量：上游约 446 提交/年 ⇒ 十年内追不上；再大只是让包名更长
+  CI_VERSION_CODE_BASE: '5000'
   # 滚动页：固定 tag + 页面标题 + 保留组数
   CI_TAG: ci
   CI_TITLE: CI Build
