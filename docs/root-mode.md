@@ -8,11 +8,17 @@ ip rule 之前先读本文件**；三模式共有的启动链、override 注入�
 
 **ROOT TPROXY 的 IPv6 注入必须门控**：`RootTproxyApplier.apply(ipv6Enabled)` 由 `VPN_ALLOW_IPV6` 决定（与 VPN/ROOT TUN 同一开关），默认 false 时跳过所有 ip6tables / `ip -6` 注入，IPv6 走内核原生路由；teardown 永远尝试清 v4+v6 保证切换无残留。mihomo 默认 `ipv6: false` 时无法 dial IPv6，TPROXY 无差别拦截 → accept → 拨号 "ip version error" → App 重试，形成 600 conn/s 紧密循环（实测 95s 产生 56k 失败 + 25MB 日志）。VPN/ROOT TUN 由 `inet6-address` 控制 TUN 是否注册 v6 默认路由，本身就有这层过滤。
 
-**ROOT runtime/ 沙箱**：ROOT mihomo 工作目录是独立 `runtime/{uuid}/`（从 imported/ 复制），不碰 imported/。启停钩子：`startProxy` 新鲜启动前 `prepareRootRuntime`；stop/restart/进程监控三条死亡路径都在 `clearPersistedState` 之前 `cleanupRootRuntime`；attach 分支**不重建**。存量旧 root:root 遗孤由 `MishkaApplication` 后台线程一次性 `su chown -R $APP_UID imported/` 迁移。
+**ROOT runtime/ 沙箱**：ROOT mihomo 工作目录是独立 `runtime/{uuid}/`（从 imported/ 复制），不以 root 直写 imported/。停机、重启、进程死亡、切回 VPN，以及下一次新鲜启动准备沙箱之前，由 [RootRuntimeCache](../app/src/main/kotlin/top/yukonga/mishka/service/RootRuntimeCache.kt) 把 provider 缓存以 app UID 回写 imported/ 再删 runtime/。存量旧 root:root 遗孤由 `MishkaApplication` 后台线程一次性 `su chown -R $APP_UID imported/` 迁移。
+
+- **回写什么**：目录里实际落下的普通文件（含脚本新增的 path 与 `cache.db`），不重跑覆写脚本，不删 imported/ 里不再引用的旧文件——与 VPN 直接写在 imported/ 的结果一致。工作目录根上的 `config.yaml`、日志、geodata 不回写，子目录里的同名文件要回写；符号链接（含祖先）不回写。`config.yaml` 与启动时不一致则整单跳过，避免盖掉运行期间的新提交。
+- **怎么写**：保留缓存文件与订阅根目录的 mtime（后者是界面 updatedAt 的来源，恢复时不跟随符号链接）；文件和新建目录的 SELinux 标签改成与 `imported/{uuid}/` 相同，否则 app 拷不回下一轮沙箱。toybox `chcon` / `restorecon` 为何只能「读出上下文再 `chcon CONTEXT`」见 `RootHelper.syncRegularFiles` 的 KDoc。属主或标签没改成 app 能用的文件不发布、保留旧缓存，其它文件照常；SELinux 关闭且读不到上下文时只 chown。
+- **锁**：processLock → 沙箱锁 → profileLock。回写、`deleteProfileDirs` 删 runtime/、prepare 共用沙箱锁；删除订阅从主线程协程进来，等锁必须挂起，不能 `runBlocking`。`releaseAll` 在 runtime/ 为空时不取锁直接返回——每次 ROOT 新鲜启动与 root 设备上的每次 VPN 启动都会调它，而订阅下载会占 processLock 几分钟。
+- **启停钩子**：新鲜启动杀进程后 `releaseAll` 再 `prepare`；stop 与进程监控先发布终态（Stopped / Error）并 `stopSelf`，再 `release`，没写完被回收由下次启动的 `releaseAll` 补；restart 先 `release` 再启动；attach 分支**不重建、不回写**。
+- **代次**：清理只认启动时记下的沙箱代次，已被新 prepare 或删除订阅取代就不再 `rm -rf`，否则会删掉刚建好的沙箱。`release` 等锁阶段可取消，实际回写和清理在 `NonCancellable` 里；stop/restart 取消还在等锁的那次并自己接手，接手后的回写挂在 `cleanupScope` 而非 Service scope，`onDestroy` 只取消还在轮询的监控。stop/restart 在取消启动协程前记下代次，被取消的启动若已 prepare，按启动 job 认领它那份沙箱（订阅 ID 可能还没持久化）。
 
 **任何进入 `su -c` 的外部值必须 `escapeShellSingleQuoted`**：双引号挡不住 `$(...)`。`--secret` 来自远端 config.yaml 行扫描、`--age-secret-key` 用户手填、device name 只 trim，上游均无字符校验，转义是唯一防线。启动日志只打 flag 名，密钥不进 logcat。
 
-**孤儿 mihomo 清理**：`RootHelper.cleanupOrphanedMihomo(tunDevice)` 单次 su shell 完成 pkill + `ip link delete <tunDevice>`（防 sing-tun EEXIST）。VPN 启动在 `hadRootPid || HAS_ROOT` 时触发，清 ROOT 持久化 key + 兜底 `cleanupAllRootRuntime`。
+**孤儿 mihomo 清理**：`RootHelper.cleanupOrphanedMihomo(tunDevice)` 单次 su shell 完成 pkill + `ip link delete <tunDevice>`（防 sing-tun EEXIST）。VPN 启动在 `hadRootPid || HAS_ROOT` 时触发，清 ROOT 持久化 key + 兜底 `RootRuntimeCache.releaseAll`。
 
 **ROOT 模式重连校验**：`attachToExisting` 三重验证（`kill -0` 存活 + `/proc/$pid/cmdline` 含 libmihomo.so + stored secret 通过 `/configs` Bearer 鉴权 2xx）；订阅一致性由 `startProxy` 在 attach 前比对 persisted vs 请求 subscriptionId，不一致走 cleanup + 全新启动。
 
