@@ -3,10 +3,10 @@
 #   母版：知识库 100_System/templates/build-ci.workflow.yml（规程：GitHub域/CI滚动发布页流程.md）
 #   ⚠️ 本项目（Mishka = mihomo GUI，**非 LSPosed 模块**）对母版有五处裁剪，同步母版更新时注意保留：
 #     ① 构建环境：多了 Go 工具链 + 子模块（mihomo / scripta）+ 先跑 downloadGeoFiles
-#     ② 版本号解析：versionName 在 buildSrc 常量里、versionCode 是 git 提交数（不是 versionName= 字面量）
+#     ② 版本号解析：versionName 在 buildSrc 常量里、versionCode 由 CI 运行序号生成（不是 versionName= 字面量）
 #     ③ 产物门禁：去掉 libxposed 三件套那几条，改查包名+显示名+启动类 / ABI / 核心 so / IP 地理数据 / 签名
 #     ④ 产物定位：`base.archivesName` 把 APK 名定成 `Mishka-v<版本>(<code>)-<abi>-<变体>.apk`（随版本与
-#        提交数变化）⇒ 母版钉死的产物路径在此必然落空，改按变体目录 glob 取并要求恰好一个
+#        versionCode 变化）⇒ 母版钉死的产物路径在此必然落空，改按变体目录 glob 取并要求恰好一个
 #     ⑤ fork 身份：CI 出包用 **fork 包名 / 显示名 + fork 专属的内核态命名空间**（与上游原版并存
 #        安装、甚至同时开 root 模式，便于对照同一版本），构建前就地改写工作区，仓库源码保持与
 #        上游逐字一致 —— 见「Apply fork identity」步骤与 scripts/ci-fork-identity.py
@@ -55,8 +55,11 @@ env:
   #   改 label 一处即全变。名字进文件名与下载 URL ⇒ label 只允许 A-Za-z0-9._-（中文名与括号在此
   #   会变成 URL 不友好字符），ci-fork-identity.py 对 --label 有断言。
   # 版本号来源文件：Mishka 的 versionName 是 buildSrc 里的常量（sed 取第一处 VERSION_NAME），
-  # versionCode 由 git 提交数生成 ⇒ 解析方式见 Resolve APK name 步骤
+  # versionCode = 下面的基数 + 本次运行序号（本地构建没这个属性时仍用 git 提交数）⇒ 见 Resolve APK name 步骤
   VERSION_FILE: buildSrc/src/main/kotlin/ProjectConfig.kt
+  # 基数：改用单调的运行序号后必须从高于历史上所有提交数的值起步，否则第一次改用又是一次降级，
+  #   装机仍要强制安装（提交数会被 squash 合并、分支切换拉低，所以不能拿它当 versionCode）
+  CI_VERSION_CODE_BASE: '100000'
   # 滚动页：固定 tag + 页面标题 + 保留组数
   CI_TAG: ci
   CI_TITLE: CI Build
@@ -79,7 +82,7 @@ env:
   EXPECT_ABI: arm64-v8a
   EXPECTED_CERT_SHA256: '8D1B6022D3E3BB837A3BA1870E0EEAC8650F9470B8287EDF549DACEC9E9E2A64'
   # abi splits 已开、isUniversalApk=false ⇒ 产物名带 ABI 段（见 app/build.gradle.kts）
-  # 只钉变体目录、不钉文件名：产物名是 `base.archivesName` + 版本的组合，随版本与提交数变化
+  # 只钉变体目录、不钉文件名：产物名是 `base.archivesName` + 版本的组合，随版本与 versionCode 变化
   APK_DIR_DEBUG: app/build/outputs/apk/debug
   APK_DIR_RELEASE: app/build/outputs/apk/release
   # push 触发时构建哪些变体：一次出 debug + release 两个包（与 NotifyGuard 同口径）。
@@ -107,7 +110,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # 完整历史是硬需求：versionCode = `git rev-list --count HEAD`，浅克隆会静默掉到兜底值 1
+          # versionCode 已改由 CI 运行序号生成、不依赖历史；fetch-depth: 0 保留作保险 —— 浅克隆会让
+          # 仍读 git 历史的步骤静默出错
           fetch-depth: 0
           # mihomo（Go 核心源码）+ scripta（settings.gradle.kts 的 includeBuild）缺一即编不出来
           submodules: recursive
@@ -226,11 +230,12 @@ jobs:
         run: |
           set -euo pipefail
           VER="$(sed -nE 's/^[[:space:]]*const val VERSION_NAME = "([^"]+)".*/\1/p' "$VERSION_FILE" | head -1)"
-          # versionCode 是**提交数**（buildSrc/getGitVersionCode），不是文件里的字面量 ⇒ 这里现算一次，
-          # 与构建同源（checkout 的 fetch-depth: 0 保证计数完整，浅克隆会算出兜底值 1）
-          CODE="$(git rev-list --count HEAD)"
+          # versionCode 取「基数 + 运行序号」而非提交数：提交数在 squash 合并、切分支后会倒退，装机被判
+          # 成降级（要强制安装）。运行序号同一次 run 恒定 ⇒ 这里算出的值与 Gradle 侧、下面的 versionCode
+          # 断言天然同源
+          CODE="$(( CI_VERSION_CODE_BASE + GITHUB_RUN_NUMBER ))"
           if [ -z "$VER" ] || [ -z "$CODE" ]; then
-            echo "::error::读不到 versionName（$VERSION_FILE）/ versionCode（git rev-list --count HEAD）"
+            echo "::error::读不到 versionName（$VERSION_FILE）/ versionCode（$CI_VERSION_CODE_BASE + $GITHUB_RUN_NUMBER）"
             exit 1
           fi
           # 版本名可能带空格（如 "2.2.0 Dev 9"），而文件名不允许空格 —— 去掉全部空白
@@ -322,8 +327,8 @@ jobs:
           # libmihomo.so（Go 核心）由 preBuild 依赖的 GoBuildTask 现编，CMake 再链它
           for v in $VARIANT_LIST; do
             case "$v" in
-              debug)   ./gradlew --no-daemon :app:assembleDebug   -PciVersionSuffix="ci-debug.${SHORT}" ;;
-              release) ./gradlew --no-daemon :app:assembleRelease -PciVersionSuffix="ci-release.${SHORT}" ;;
+              debug)   ./gradlew --no-daemon :app:assembleDebug   -PciVersionSuffix="ci-debug.${SHORT}" -PciVersionCode="$CODE" ;;
+              release) ./gradlew --no-daemon :app:assembleRelease -PciVersionSuffix="ci-release.${SHORT}" -PciVersionCode="$CODE" ;;
             esac
           done
           ls -la app/build/outputs/apk/*/ || true
