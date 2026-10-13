@@ -234,6 +234,12 @@ jobs:
           # 成降级（要强制安装）。运行序号同一次 run 恒定 ⇒ 这里算出的值与 Gradle 侧、下面的 versionCode
           # 断言天然同源
           CODE="$(( CI_VERSION_CODE_BASE + GITHUB_RUN_NUMBER ))"
+          # 运行序号涨到上限得几万年（每天 20 次 ≈ 29 万年），但**基数是可以被人改大的** ⇒ 卡一道：
+          #   2100000000 是 Play 的硬上限，超过它连构建门禁都过不去（侧载虽只受 int 上限约束，也别越）
+          if [ "$CODE" -gt 2100000000 ]; then
+            echo "::error::versionCode=$CODE 超过 2100000000 —— 查 CI_VERSION_CODE_BASE 是不是被改大了"
+            exit 1
+          fi
           if [ -z "$VER" ] || [ -z "$CODE" ]; then
             echo "::error::读不到 versionName（$VERSION_FILE）/ versionCode（$CI_VERSION_CODE_BASE + $GITHUB_RUN_NUMBER）"
             exit 1
