@@ -25,8 +25,10 @@ on:
     # ⚠️ 必须显式写 branches：只写 paths-ignore 时**标签推送也会触发**（发版工作流建的 tag
     #   会反手把 CI 跑一遍）。`[ '**' ]` 只匹配分支，恰好把标签挡在外面。
     branches: ['**']
-    # 不设 paths-ignore：任何提交（含文档）都出包 —— 按文件类型过滤会让人以为「推了没反应」，
-    #   而出包的唯一入口就是 push（下面的 workflow_dispatch 只是逃生口，不是日常路径）
+    paths-ignore:            # ← 按项目改：纯文档/数据文件改动不必出包
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
     inputs:
       variant:
