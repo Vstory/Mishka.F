@@ -31,6 +31,7 @@ class ExternalControlActivity : Activity() {
             ACTION_START_PROXY -> controlProxy(ExternalProxyAction.Start)
             ACTION_STOP_PROXY -> controlProxy(ExternalProxyAction.Stop)
             ACTION_TOGGLE_PROXY -> controlProxy(ExternalProxyAction.Toggle)
+            ACTION_RESTART_PROXY -> controlProxy(ExternalProxyAction.Restart)
             else -> importSubscription()
         }
     }
@@ -49,8 +50,12 @@ class ExternalControlActivity : Activity() {
         when (val outcome = ProxyServiceController(this).applyExternalAction(action)) {
             ExternalProxyOutcome.Started -> showToast(getString(R.string.external_proxy_started))
             ExternalProxyOutcome.Stopped -> showToast(getString(R.string.external_proxy_stopped))
+            ExternalProxyOutcome.Restarted -> showToast(getString(R.string.external_proxy_restarted))
             ExternalProxyOutcome.AlreadyRunning ->
                 showToast(getString(R.string.external_proxy_already_running))
+
+            ExternalProxyOutcome.NotRunning ->
+                showToast(getString(R.string.external_proxy_not_running))
 
             // 过渡态（Starting / Stopping）不播报：用户刚点过或刚被自动化触发过，再弹一条是噪音
             ExternalProxyOutcome.Busy -> Unit
@@ -104,6 +109,7 @@ class ExternalControlActivity : Activity() {
         const val ACTION_START_PROXY = "top.yukonga.mishka.action.START_PROXY"
         const val ACTION_STOP_PROXY = "top.yukonga.mishka.action.STOP_PROXY"
         const val ACTION_TOGGLE_PROXY = "top.yukonga.mishka.action.TOGGLE_PROXY"
+        const val ACTION_RESTART_PROXY = "top.yukonga.mishka.action.RESTART_PROXY"
 
         const val EXTRA_IMPORT_URL = "import_url"
         const val EXTRA_IMPORT_NAME = "import_name"

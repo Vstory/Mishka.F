@@ -40,7 +40,7 @@ data class ProxyServiceStatus(
 )
 
 /** Automation（外部 intent）与磁贴请求的启停动作。 */
-enum class ExternalProxyAction { Start, Stop, Toggle }
+enum class ExternalProxyAction { Start, Stop, Toggle, Restart }
 
 /**
  * 外部启停的结果。除 [ExternalProxyOutcome.NeedVpnPermission] 外都已在 Controller 内落地，调用方
@@ -50,7 +50,11 @@ enum class ExternalProxyAction { Start, Stop, Toggle }
 sealed interface ExternalProxyOutcome {
     data object Started : ExternalProxyOutcome
     data object Stopped : ExternalProxyOutcome
+    data object Restarted : ExternalProxyOutcome
     data object AlreadyRunning : ExternalProxyOutcome
+
+    /** 重启只在运行中成立 —— 界面上的重启按钮同样只在运行中出现。 */
+    data object NotRunning : ExternalProxyOutcome
     data object Busy : ExternalProxyOutcome
     data object NoSubscription : ExternalProxyOutcome
     data class NeedVpnPermission(val subscriptionId: String) : ExternalProxyOutcome
@@ -124,9 +128,17 @@ class ProxyServiceController(private val context: Context) {
                     stop()
                     return ExternalProxyOutcome.Stopped
                 }
+
+            // 未运行不顺手拉起：界面上的重启按钮同样只在运行中出现，外部入口保持同一语义
+            ExternalProxyAction.Restart ->
+                if (!running) return ExternalProxyOutcome.NotRunning
         }
         val id = resolveStartSubscriptionId() ?: return ExternalProxyOutcome.NoSubscription
         if (!hasVpnPermission()) return ExternalProxyOutcome.NeedVpnPermission(id)
+        if (action == ExternalProxyAction.Restart) {
+            restart(id)
+            return ExternalProxyOutcome.Restarted
+        }
         start(id)
         return ExternalProxyOutcome.Started
     }

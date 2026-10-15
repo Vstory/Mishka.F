@@ -51,6 +51,8 @@
     <string name="external_proxy_started">Прокси запущен</string>
     <string name="external_proxy_stopped">Прокси остановлен</string>
     <string name="external_proxy_already_running">Прокси уже запущен</string>
+    <string name="external_proxy_restarted">Прокси перезапущен</string>
+    <string name="external_proxy_not_running">Прокси не запущен</string>
 
     <!-- Service Errors -->
     <string name="error_vpn_failed">Сбой создания VPN: %1$s</string>
