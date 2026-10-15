@@ -47,6 +47,31 @@
 - **Wi-Fi 自动切换** —— 匹配指定 SSID 时自动停止代理或切换 Direct 模式
 - 开机自启、隐藏最近任务卡片等实用开关
 
+## 自动化
+
+Tasker、快捷方式、adb 等外部工具可经 intent 启停代理，或用深链导入订阅。包名以实际安装的为准（默认 `top.yukonga.mishka`）。
+
+- **启动 / 停止 / 切换代理** —— 向 `ExternalControlActivity` 发送显式 intent，action 取以下之一：
+  - `top.yukonga.mishka.action.START_PROXY`
+  - `top.yukonga.mishka.action.STOP_PROXY`
+  - `top.yukonga.mishka.action.TOGGLE_PROXY`
+
+  ```bash
+  # 本 fork 的 applicationId 是 top.yukonga.mishka.fork，但 namespace（类的全限定名前缀）仍是
+  # top.yukonga.mishka —— 组件必须写全限定类名：`-n <包名>/.ExternalControlActivity` 会按
+  # applicationId 展开成 top.yukonga.mishka.fork.ExternalControlActivity，那个类不存在（Error type 3）。
+  adb shell am start -a top.yukonga.mishka.action.TOGGLE_PROXY \
+      -n top.yukonga.mishka.fork/top.yukonga.mishka.ExternalControlActivity
+  ```
+
+  上游原版的组件则是 `top.yukonga.mishka/top.yukonga.mishka.ExternalControlActivity`。
+
+  这个跳板不显示界面（透明 + 无转场 + 立即结束），也不会把 Mishka 的界面带到前台。
+
+  **不要改为广播，也不要给它换成 `Theme.NoDisplay`**：两者都会让应用在启动服务时仍处后台，而 Android 12 起后台应用不能启动前台服务——「启动」会静默失败。启动一个 Activity 恰好是拿到该豁免的条件，这就是这里保留一个（看不见的）Activity 的原因。
+
+- **导入订阅** —— URL Scheme `clash://install-config?url=<encoded URI>` 或 `clashmeta://install-config?url=<encoded URI>`，可选参数 `name`、`update-interval`（单位分钟）
+
 ## 构建
 
 ### 环境要求
