@@ -51,10 +51,11 @@
 
 Tasker、快捷方式、adb 等外部工具可经 intent 启停代理，或用深链导入订阅。包名以实际安装的为准（默认 `top.yukonga.mishka`）。
 
-- **启动 / 停止 / 切换代理** —— 向 `ExternalControlActivity` 发送显式 intent，action 取以下之一：
+- **启动 / 停止 / 切换 / 重启代理** —— 向 `ExternalControlActivity` 发送显式 intent，action 取以下之一：
   - `top.yukonga.mishka.action.START_PROXY`
   - `top.yukonga.mishka.action.STOP_PROXY`
   - `top.yukonga.mishka.action.TOGGLE_PROXY`
+  - `top.yukonga.mishka.action.RESTART_PROXY` —— 仅在代理运行中生效（与界面上的重启按钮一致）；未运行时只提示、不顺手启动
 
   ```bash
   # 本 fork 的 applicationId 是 top.yukonga.mishka.fork，但 namespace（类的全限定名前缀）仍是
