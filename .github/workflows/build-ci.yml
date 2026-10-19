@@ -6,7 +6,9 @@
 #     ② 版本号解析：versionName 在 build-logic 常量里、versionCode 由 CI 运行序号生成（不是 versionName= 字面量）
 #     ③ 产物门禁：去掉 libxposed 三件套那几条，改查包名+显示名+启动类 / ABI / 核心 so / IP 地理数据 / 签名
 #     ④ 产物定位：`base.archivesName` 把 APK 名定成 `Mishka-v<版本>(<code>)-<abi>-<变体>.apk`（随版本与
-#        versionCode 变化）⇒ 母版钉死的产物路径在此必然落空，改按变体目录 glob 取并要求恰好一个
+#        versionCode 变化）⇒ 母版钉死的产物路径在此必然落空，改按变体目录 glob 取并要求恰好一个。
+#        上游开了 splits.abi、一个变体出 4 个包，故 Gradle build 步骤就地收窄 supportedAbis 到
+#        arm64-v8a（只改工作区、不提交）——「恰好一个」这条断言靠它成立
 #     ⑤ fork 身份：CI 出包用 **fork 包名 / 显示名 + fork 专属的内核态命名空间**（与上游原版并存
 #        安装、甚至同时开 root 模式，便于对照同一版本），构建前就地改写工作区，仓库源码保持与
 #        上游逐字一致 —— 见「Apply fork identity」步骤与 scripts/ci-fork-identity.py
@@ -328,6 +330,12 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
+          # 上游开了 splits.abi，一个变体出 4 个包；滚动页每次构建只留一行，4 个包会把页面冲散。
+          #   就地收窄 —— 只改工作区、不提交，仓库源码保持与上游逐字一致。
+          #   splits 的 include 与 buildMihomoTasks 共用 supportedAbis，改这一行两处同时生效；
+          #   只改 include 的话 preBuild 仍 dependsOn 全部 4 个 Go 编译任务，白编 3 份 .so。
+          sed -i 's|^val supportedAbis = .*|val supportedAbis = listOf("arm64-v8a")|' app/build.gradle.kts
+          grep -n '^val supportedAbis' app/build.gradle.kts
           # GeoIP/GeoSite 数据文件不入库（.gitignore 排除），且刻意没挂进 assemble ⇒ 必须先显式取一次；
           # 该任务自带超时与体积下限校验，抓到错误页会直接失败而不是把 HTML 当数据打进包里
           ./gradlew --no-daemon :app:downloadGeoFiles
