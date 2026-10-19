@@ -39,13 +39,12 @@ data class ProxyServiceStatus(
     val errorNotified: Boolean = false,
 )
 
-/** Automation（外部 intent）与磁贴请求的启停动作。 */
+/** 外部 intent 请求的启停动作。 */
 enum class ExternalProxyAction { Start, Stop, Toggle, Restart }
 
 /**
  * 外部启停的结果。除 [ExternalProxyOutcome.NeedVpnPermission] 外都已在 Controller 内落地，调用方
- * 按结果播报即可；授权对话框要求 Activity 上下文，故把订阅 id 交回调用方自己拉 —— 磁贴要
- * startActivityAndCollapse、Activity 直接 startActivity，手法不同。
+ * 按结果播报即可；授权对话框要求 Activity 上下文，故把订阅 id 交回调用方自己拉。
  */
 sealed interface ExternalProxyOutcome {
     data object Started : ExternalProxyOutcome
@@ -102,7 +101,7 @@ class ProxyServiceController(private val context: Context) {
     }
 
     /**
-     * 磁贴与 Automation intent 共用的启停决策：状态判定只写这一份，两个入口各判一套迟早漂移。
+     * 外部入口的启停决策：状态判定集中在这里，别在调用方另判一套。
      * 过渡态直接忽略 —— 再发一次 start 会与 Service 内进行中的那轮启动协程并发，现象是同一个
      * Service 里出现两条 `Starting proxy`。
      */

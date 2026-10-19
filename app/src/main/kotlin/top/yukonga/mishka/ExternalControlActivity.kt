@@ -10,14 +10,11 @@ import top.yukonga.mishka.platform.showToast
 import top.yukonga.mishka.service.VpnPermissionActivity
 
 /**
- * Automation 跳板：外部按「类名 + action」发显式 intent 启停代理，做法照 CMFA。
- * 深链导入仍归 ExternalImportActivity，本类不承接。
- *
  * 用有窗口的透明主题是必须的：Android 12 起后台应用不能启动前台服务，「应用有一个 Activity 被
  * 启动」正是拿到豁免的条件，换成 Theme.NoDisplay 会让「启动」静默失败。
  *
- * 空 taskAffinity 让本类不属于任何 task，NEW_TASK 启动时系统只能新建 task —— 单靠 MainActivity
- * 的 singleTask 实测挡不住主界面被前置。给出入都取消转场，避免把一次自动化请求放大成可见的切换。
+ * 空 taskAffinity 让本类不属于任何 task，NEW_TASK 启动时系统只能新建 task，主界面不会被前置——
+ * 只照抄 Activity 声明本身实测挡不住。给出入都取消转场，避免把一次自动化请求放大成可见的切换。
  */
 class ExternalControlActivity : Activity() {
 
@@ -41,8 +38,8 @@ class ExternalControlActivity : Activity() {
     }
 
     /**
-     * 启停一律经 [ProxyServiceController]，与磁贴共用同一份状态判定与订阅校验 —— 本 Activity 不碰
-     * Service，也不自己判「该不该启动」。
+     * 启停一律经 [ProxyServiceController]：本 Activity 不碰 Service，也不自己判「该不该启动」——
+     * 直拉 Service 会绕过 active 订阅与 config.yaml 落盘的校验。
      */
     private fun controlProxy(action: ExternalProxyAction) {
         when (val outcome = ProxyServiceController(this).applyExternalAction(action)) {

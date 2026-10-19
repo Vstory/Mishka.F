@@ -61,12 +61,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Automation 跳板：代理启停，照 CMFA 的做法。必须有窗口（透明主题）：Android 12 起后台应用
-             不能启动前台服务，而「应用有一个 Activity 被启动」正是拿到该豁免的条件 —— 换成
-             Theme.NoDisplay 或改走 BroadcastReceiver（处理广播时应用仍在后台）都会让「启动」静默失败。
-             空 taskAffinity 是官方文档给定的隔离手段（声明「不属于任何 task」）：以 NEW_TASK 启动时
-             系统找不到可复用的 task，只能新建，主界面那条不会被前置。上游没写这条，而只照抄上游那套
-             声明实测仍会被前置（已装包复现），因此这里保留这条、不再靠 alias 或 singleTask 去顶。 -->
+        <!-- 必须有窗口（透明主题）：Android 12 起后台应用不能启动前台服务，「应用有一个 Activity
+             被启动」正是拿到豁免的条件 —— Theme.NoDisplay 或 BroadcastReceiver 都会让「启动」静默失败。
+             空 taskAffinity 让本类不属于任何 task，NEW_TASK 启动时系统只能新建，主界面不会被前置；
+             只照抄 Activity 声明本身实测挡不住（已装包复现）。 -->
         <activity
             android:name=".ExternalControlActivity"
             android:excludeFromRecents="true"
