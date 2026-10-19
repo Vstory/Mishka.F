@@ -68,7 +68,8 @@ class ExternalControlActivity : Activity() {
     }
 
     companion object {
-        /** Automation 入口：外部按「类名 + 下列 action」发显式 intent，用法见 README「自动化」。 */
+        // 这四个字面量在 Manifest 的 intent-filter 里另有一份，改名必须两处同改 —— 编译器不会替你
+        // 对齐，只改一处会让外部 intent 匹配不到，表现成「点了没反应」
         const val ACTION_START_PROXY = "top.yukonga.mishka.action.START_PROXY"
         const val ACTION_STOP_PROXY = "top.yukonga.mishka.action.STOP_PROXY"
         const val ACTION_TOGGLE_PROXY = "top.yukonga.mishka.action.TOGGLE_PROXY"
