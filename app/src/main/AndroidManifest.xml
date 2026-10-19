@@ -27,16 +27,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Mishka">
 
-        <!-- singleTask 照 CMFA（PR #665，singleTop -> singleTask）。桌面入口仍留在本体上：上游那套
-             把 LAUNCHER 挂到 activity-alias 的做法不构成 task 隔离 —— alias 的 taskAffinity/launchMode
-             按文档从 target 继承 —— 却会让 aapt2 的 launchable-activity 变成 alias 名，直接撞上
-             build-ci.yml 里「启动类必须是 top.yukonga.mishka.MainActivity」那道门禁。
-             单 Activity 架构下 clear top 无事可做，深链的 NEW_TASK|SINGLE_TOP|CLEAR_TOP 与它兼容。 -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|mnc|colorMode|density|fontScale|fontWeightAdjustment|keyboard|layoutDirection|locale|mcc|navigation|smallestScreenSize|touchscreen|uiMode"
             android:exported="true"
-            android:launchMode="singleTask"
             android:theme="@style/Theme.Mishka.Starting"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -48,7 +42,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 深链跳板：clash:// / clashmeta:// 订阅导入，声明与主题沿用上游。 -->
+        <!-- clash:// / clashmeta:// 订阅一键导入深链入口 -->
         <activity
             android:name=".ExternalImportActivity"
             android:excludeFromRecents="true"
