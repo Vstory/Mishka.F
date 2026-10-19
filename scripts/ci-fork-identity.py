@@ -28,7 +28,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KOTLIN_DIR = "app/src/main/kotlin/top/yukonga/mishka"
-BUILDSRC_DIR = "buildSrc/src/main/kotlin"
+BUILDSRC_DIR = "build-logic/src/main/kotlin"
 SERVICE = f"{KOTLIN_DIR}/service"
 PLATFORM = f"{KOTLIN_DIR}/platform"
 

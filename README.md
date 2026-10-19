@@ -78,7 +78,7 @@ Tasker、快捷方式、adb 等外部工具可经 intent 启停代理，或用�
 ### 环境要求
 
 - JDK 21
-- Android SDK + NDK（含 clang），SDK 版本见 `buildSrc/ProjectConfig.kt`
+- Android SDK + NDK（含 clang），SDK 版本见 `build-logic/src/main/kotlin/ProjectConfig.kt`
 - Go（版本见 `app/src/main/native/mishka_core/go.mod`；mihomo 子模块经 go.mod `replace` 引入）
 - Git（用于 submodule 与版本号生成）
 

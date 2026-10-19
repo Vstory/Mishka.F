@@ -15,7 +15,7 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import javax.inject.Inject
 
-// go 工具链交叉编译 Android 产物。BuildMode.CShared 走 cgo + NDK clang，Default 走纯 Go。
+// go 交叉编译（CShared 走 cgo + NDK clang，Default 走纯 Go）
 abstract class GoBuildTask : DefaultTask() {
 
     enum class BuildMode { Default, CShared }
@@ -27,13 +27,7 @@ abstract class GoBuildTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val goSourceDir: DirectoryProperty
 
-    /**
-     * go.mod `replace` 指向的模块源码树（本仓是 mihomo submodule）。
-     *
-     * **必须声明**：`go build` 编译的绝大部分代码在 [goSourceDir] 之外，不作为输入就会让
-     * rebase / 改 patch 后任务判 UP-TO-DATE，静默产出陈旧 .so——现象与「patch 根本没生效」
-     * 完全一致，无法区分。宁可多收也不能漏：多收只是多重建一次，漏收是发不出信号的错误。
-     */
+    /** 追踪 replace 指向的外部模块源码，保证 submodule 改动能触发任务重跑。 */
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val replacedModuleSources: ConfigurableFileCollection
@@ -68,11 +62,7 @@ abstract class GoBuildTask : DefaultTask() {
     @get:OutputFile
     abstract val outputFile: RegularFileProperty
 
-    /**
-     * c-shared 模式下 go 与 .so 一并生成的头文件，被 CMake 的 target_include_directories 消费。
-     * 不声明为输出就不受追踪，stale-output 清理有机会把它删掉，而报错是 CMake 的
-     * `libmihomo.h: No such file`，与真实原因隔了一层。
-     */
+    /** c-shared 模式生成的头文件，被 CMake 消费。声明为输出防止 stale-output 清理。 */
     @get:OutputFile
     @get:Optional
     abstract val headerFile: RegularFileProperty
@@ -99,10 +89,9 @@ abstract class GoBuildTask : DefaultTask() {
             args += it.joinToString(",")
         }
         args += "-trimpath"
-        // go 默认探测 VCS 状态往二进制里塞 stamp：多花时间、产物不可复现，
-        // 且在没有 git 或仓库属主不匹配的容器里直接构建失败
+        // 禁用 VCS stamp 以支持可复现构建
         args += "-buildvcs=false"
-        // 不设 SONAME，消费方链接器会把构建期绝对路径烙进 DT_NEEDED，运行时 dlopen 必失败
+        // 显式写入 SONAME，避免消费方将其绝对路径烙进 DT_NEEDED
         val ldflagsBuilder = StringBuilder("-s -w -X ${moduleVersionPath.get()}=${versionName.get()}")
         if (buildMode.get() == BuildMode.CShared) {
             ldflagsBuilder.append(" -extldflags=-Wl,-soname,").append(outFile.name)
@@ -122,6 +111,9 @@ abstract class GoBuildTask : DefaultTask() {
 
             environment("GOOS", "android")
             environment("GOARCH", goArch)
+            if (goArch == "arm") {
+                environment("GOARM", "7")
+            }
             environment("CGO_ENABLED", if (cgoEnabled.get()) "1" else "0")
 
             if (cgoEnabled.get()) {

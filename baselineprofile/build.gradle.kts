@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.androidTest)
     alias(libs.plugins.baselineProfile)
+    id("mishka.build-logic")
 }
 
 dependencies {

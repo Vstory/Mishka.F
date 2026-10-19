@@ -475,7 +475,7 @@ class SubscriptionRepositoryImpl(
             overrideIds = (pending?.overrideIds ?: imported.overrideIds).decodeOverrideIds(),
             overrideSortPreference = (pending?.overrideSortPreference ?: imported.overrideSortPreference).decodeOverrideIds(),
             interval = pending?.interval ?: imported.interval,
-            upload = pending?.upload ?: liveInfo?.Upload ?: imported.upload,
+            upload = liveInfo?.Upload ?: imported.upload,
             download = liveInfo?.Download ?: imported.download,
             total = liveInfo?.Total ?: imported.total,
             expire = liveInfo?.Expire ?: imported.expire,

@@ -23,7 +23,7 @@ deploymentTargetDropDown.xml
 render.experimental.xml
 
 # Kotlin
-/.kotlin
+.kotlin/
 
 # Keystore files
 *.jks

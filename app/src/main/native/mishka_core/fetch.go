@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metacubex/bbolt"
 	"github.com/metacubex/mihomo/common/utils"
 	clashHttp "github.com/metacubex/mihomo/component/http"
 	"github.com/metacubex/mihomo/config"
@@ -143,7 +144,7 @@ func runFetchAndValid(
 
 	patchProvidersPath(rawCfg, workDir)
 
-	prefetchProviders(ctx, token, rawCfg, effectiveUA)
+	prefetchProviders(ctx, token, rawCfg, effectiveUA, workDir, result)
 
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -381,16 +382,17 @@ func parseProviderInfo(provider map[string]any) (http.Header, int64) {
 }
 
 // best-effort：单个下载失败不阻塞 Parse；缺 provider 时 Parse 自己会报错。
-func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, userAgent string) {
+func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, userAgent string, workDir string, result *FetchResult) {
 	type item struct {
 		key       string
 		url       string
 		dest      string
 		header    http.Header
 		sizeLimit int64
+		kind      string
 	}
 	var items []item
-	forEachProviders(cfg, func(_, _ int, key string, provider map[string]any, _ string) {
+	forEachProviders(cfg, func(_, _ int, key string, provider map[string]any, kind string) {
 		urlStr, _ := provider["url"].(string)
 		dest, _ := provider["path"].(string)
 		if urlStr == "" || dest == "" {
@@ -406,6 +408,7 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 			dest:      dest,
 			header:    header,
 			sizeLimit: sizeLimit,
+			kind:      kind,
 		})
 	})
 
@@ -419,6 +422,10 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 		Progress:    0,
 		MaxProgress: total,
 	})
+
+	var mu sync.Mutex
+	rawUserinfos := make(map[string]string)
+	var providerInfos []*FetchResult
 
 	// 限流并发：模板订阅十几个 provider 常见，顺序拉取最坏是 N × fetchTimeout。
 	// 每个 provider 仍各自计时，进度按完成数推进
@@ -438,7 +445,17 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 				return
 			}
 			if u, err := url.Parse(it.url); err == nil {
-				_ = fetchProvider(ctx, u, it.dest, userAgent, it.header, it.sizeLimit)
+				rawUserinfo, _ := fetchProvider(ctx, u, it.dest, userAgent, it.header, it.sizeLimit)
+				if rawUserinfo != "" && it.kind == "proxies" {
+					info := &FetchResult{}
+					parseUserinfo(rawUserinfo, info)
+					mu.Lock()
+					rawUserinfos[it.key] = rawUserinfo
+					if info.Total > 0 {
+						providerInfos = append(providerInfos, info)
+					}
+					mu.Unlock()
+				}
 			}
 			setProgress(token, FetchProgress{
 				Action:      "FetchProviders",
@@ -449,8 +466,54 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 		}(it)
 	}
 	wg.Wait()
+
+	if len(rawUserinfos) > 0 {
+		saveSubscriptionInfoToCache(filepath.Join(workDir, "cache.db"), rawUserinfos)
+	}
+
+	// 顶层订阅 URL 无 subscription-userinfo 头（模板订阅常见）时，
+	// 聚合所有 proxy-provider 的流量数据作为订阅默认流量写入 DB。
+	if result != nil && result.Total == 0 && len(providerInfos) > 0 {
+		var upload, download, total, expire int64
+		for _, pi := range providerInfos {
+			upload += pi.Upload
+			download += pi.Download
+			total += pi.Total
+			if pi.Expire > 0 {
+				if expire == 0 || pi.Expire < expire {
+					expire = pi.Expire
+				}
+			}
+		}
+		result.Upload = upload
+		result.Download = download
+		result.Total = total
+		result.Expire = expire
+	}
 }
 
+func saveSubscriptionInfoToCache(cachePath string, rawUserinfos map[string]string) {
+	if len(rawUserinfos) == 0 {
+		return
+	}
+	db, err := bbolt.Open(cachePath, 0600, &bbolt.Options{Timeout: time.Second})
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	_ = db.Batch(func(t *bbolt.Tx) error {
+		bucket, err := t.CreateBucketIfNotExists([]byte("subscriptioninfo"))
+		if err != nil {
+			return err
+		}
+		for name, userInfo := range rawUserinfos {
+			if err := bucket.Put([]byte(name), []byte(userInfo)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 
 // 写临时文件再 rename（同目录 rename 在 ext4/f2fs 上原子）。直写目标路径时进程被杀 /
 // 断电 / OOM kill 都会留下截断的非空 YAML，而 prefetch 只按 os.Stat 判存在就跳过，
@@ -490,7 +553,7 @@ func writeFileAtomic(dest string, src io.Reader) (int64, error) {
 	return n, nil
 }
 
-func fetchProvider(ctx context.Context, u *url.URL, dest string, userAgent string, customHeader http.Header, sizeLimit int64) error {
+func fetchProvider(ctx context.Context, u *url.URL, dest string, userAgent string, customHeader http.Header, sizeLimit int64) (string, error) {
 	subCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	header := http.Header{}
@@ -502,21 +565,22 @@ func fetchProvider(ctx context.Context, u *url.URL, dest string, userAgent strin
 	}
 	resp, err := clashHttp.HttpRequest(subCtx, u.String(), http.MethodGet, header, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("status %d", resp.StatusCode)
+		return "", fmt.Errorf("status %d", resp.StatusCode)
 	}
+	rawUserinfo := resp.Header.Get("subscription-userinfo")
 	if err := os.MkdirAll(path.Dir(dest), 0700); err != nil {
-		return err
+		return rawUserinfo, err
 	}
 	var reader io.Reader = resp.Body
 	if sizeLimit > 0 {
 		reader = io.LimitReader(reader, sizeLimit)
 	}
 	_, err = writeFileAtomic(dest, reader)
-	return err
+	return rawUserinfo, err
 }
 
 func forEachProviders(cfg *config.RawConfig, fn func(index, total int, key string, provider map[string]any, kind string)) {

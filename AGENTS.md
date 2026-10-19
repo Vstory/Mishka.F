@@ -7,7 +7,7 @@ miuix + mihomo 的 Android 代理客户端。单模块 `:app`（`com.android.app
 ## 工作规程
 
 - 每次改动至少跑 `git diff --check` + 与变更匹配的 Gradle 任务。
-- 改 Kotlin 用 `./gradlew :app:compileDebugKotlin -x buildMihomo_arm64_v8a`（秒级，跳过 Go cgo）；验证 native / 打包才 `:app:assembleDebug`（分钟级）；真机 `:app:installDebug`。
+- 改 Kotlin 用 `./gradlew :app:compileDebugKotlin -x buildMihomo`（秒级，跳过 Go cgo）；验证 native / 打包才 `:app:assembleDebug`（分钟级）；真机 `:app:installDebug`。
 - 新增 composable 后临时加 `composeCompiler { reportsDestination.set(layout.buildDirectory.dir("compose_reports")) }` + `--rerun-tasks` 跑报告，确认 restartable 全部 skippable、0 unstable 参数（当前 101 个），验完删掉临时配置。
 - `mihomo/` 是 submodule、`scripta/` 是 includeBuild 复合构建，改前先确认确需触及；首次 clone 后跑 `git submodule update --init --recursive`。
 - 保留用户已有的未提交改动；不用破坏性 reset/checkout；不修改或输出 `local.properties`。
@@ -18,7 +18,7 @@ miuix + mihomo 的 Android 代理客户端。单模块 `:app`（`com.android.app
 
 Kotlin（AGP 9 内置，不加独立 kotlin 插件）+ KSP。UI：Compose（经 miuix `-android` 件传递）+ miuix + navigation3 + material-icons-extended。数据：Room 3（反射 builder）+ Ktor + kotlinx-* + Koin。其他：quickie 扫码、hiddenapibypass 预测性返回。核心：mihomo（Mishka fork）。
 
-**版本与坐标唯一真源 = `gradle/libs.versions.toml`**（含 `[bundles]`），mihomo 版本在 `gradle.properties`，坐标/SDK 在 `buildSrc/ProjectConfig.kt`；**文档不复述版本号**，版本信息走 `BuildConfig.VERSION_NAME`/`VERSION_CODE`。`scripta:editor` 经 `includeBuild("scripta")` 引入，插件由 scripta 自己的 `pluginManagement` 解析。
+**版本与坐标唯一真源 = `gradle/libs.versions.toml`**（含 `[bundles]`），mihomo 版本在 `gradle.properties`，坐标/SDK 在 `build-logic/src/main/kotlin/ProjectConfig.kt`；**文档不复述版本号**，版本信息走 `BuildConfig.VERSION_NAME`/`VERSION_CODE`。`scripta:editor` 经 `includeBuild("scripta")` 引入，插件由 scripta 自己的 `pluginManagement` 解析。
 
 **Compose 稳定性**走 [compose_compiler_config.conf](app/compose_compiler_config.conf)，**只保留实测起作用的条目**（加之前先跑报告确认确有 unstable 参数），新增 unstable 的三方/平台字段优先进该文件而非散落 `@Stable`。三条易踩：① 条目对**子类生效**——`androidx.lifecycle.ViewModel` 一行覆盖全部 ViewModel，其内部字段稳定性因此完全不影响 composable 参数；② FQN 须与实际依赖一致，Room 3 是 `androidx.room3.*`（写 `androidx.room.*` 静默失配）；③ 只认整行 `//` 注释，行尾注释会被当成 matcher 内容。
 
@@ -29,7 +29,7 @@ Kotlin（AGP 9 内置，不加独立 kotlin 插件）+ KSP。UI：Compose（经 
 分层靠**包名**，跨层即普通包引用。约定（非 Gradle 强制）：`domain.model` 只放 `@Serializable` 模型、`domain.repository` 只放仓库接口，二者不引 android/compose/ktor/room。
 
 ```
-buildSrc/  ProjectConfig（坐标/SDK）+ GoBuildTask（Go 交叉编译）
+build-logic/  ProjectConfig（坐标/SDK）+ GoBuildTask（Go 交叉编译）
 mihomo/    submodule（YuKongA/mihomo branch Mishka，5 patch）
 scripta/   includeBuild 复合构建（YAML 编辑器），app 依赖 scripta:editor
 app/src/main/
@@ -118,11 +118,11 @@ DELETE → 三表清理 + imported/{uuid}/ + pending/{uuid}/ 删除
 
 ## 构建
 
-mihomo 经 submodule 引入 Mishka fork（branch `Mishka`）。Gradle 按 ABI 驱动 Go 构建（当前仅 arm64-v8a），产物落 `app/src/main/jniLibs/<ABI>/`；`assemble` 自动触发 buildMihomo / CMake，`downloadGeoFiles` 需手动或 CI 跑。刷新 Baseline Profile：`./gradlew :app:generateReleaseBaselineProfile`（需 adb 连 arm64 真机，产物提交进仓库）。
+mihomo 经 submodule 引入 Mishka fork（branch `Mishka`）。Gradle 按 ABI 驱动 Go 构建（支持 arm64-v8a / armeabi-v7a / x86_64 / x86 四架构分包），产物落 `app/src/main/jniLibs/<ABI>/`；`assemble` 自动触发 buildMihomo / CMake，`downloadGeoFiles` 需手动或 CI 跑。刷新 Baseline Profile：`./gradlew :app:generateReleaseBaselineProfile`（需 adb 连 arm64 真机，产物提交进仓库）。
 
 **`downloadGeoFiles` 是 `outputs.upToDateWhen { false }`**：上游 `latest` tag 原地重发布，URL 与本地文件都不变，Gradle 只会一直判 UP-TO-DATE，本地永远停在第一次抓到的那份（CI 全新 clone 没有任务历史，察觉不到）。它没有下游依赖、只在被点名时才跑，「调了就去取最新」正是该有的语义。任务本身：URL 表是 `@Input`、连接与读取都有超时、响应必须 200 且体积过下限（404 / 限流的 HTML 会被原样写成 `geoip.metadb`，构建全绿而运行时加载失败）、先落 `.part` 再 rename。它的 `@OutputDirectory` 就是 `src/main/assets`，同时是 `mergeAssets` 的输入源，故对 `merge*Assets` 声明 `mustRunAfter`——否则两者出现在同一次调用里，Gradle 会以「消费了未声明依赖的任务输出」中止。
 
-[GoBuildTask](buildSrc/src/main/kotlin/GoBuildTask.kt) 产 `libmihomo.so`（CGO_ENABLED=1，需 NDK clang，从 `androidComponents.sdkComponents.ndkDirectory` 读）。三条硬约束：
+[GoBuildTask](build-logic/src/main/kotlin/GoBuildTask.kt) 产 `libmihomo.so`（CGO_ENABLED=1，需 NDK clang，从 `androidComponents.sdkComponents.ndkDirectory` 读）。三条硬约束：
 
 - **mihomo submodule 必须整棵声明进 `replacedModuleSources`**——它经 go.mod `replace` 引入，被编译的代码绝大部分在那里而不在 `goSourceDir`；漏声明会让 rebase / 改 patch 后任务判 UP-TO-DATE、`go build` 根本不执行，静默产出陈旧 .so，现象与「patch 没生效」无法区分（`mihomo.version` 是 gradle.properties 里的手写字面量，指望它兜底就是指望每次都记得手改）。过滤用**反向排除**而非扩展名白名单：`component/ca` 有 `go:embed` 嵌 `.crt`，白名单漏一种后缀就是同一个坑；宁可多收（多重建一次）也不能漏（错误发不出信号）。
 - **`libmihomo.h` 必须与 .so 一起声明成任务输出**——它由 c-shared 一并生成、被 CMake 的 `target_include_directories` 消费；不声明则 stale-output 清理可以删掉它，报错是 CMake 的 `No such file`、与真实原因隔了一层。

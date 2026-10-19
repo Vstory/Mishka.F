@@ -3,7 +3,7 @@
 #   母版：知识库 100_System/templates/build-ci.workflow.yml（规程：GitHub域/CI滚动发布页流程.md）
 #   ⚠️ 本项目（Mishka = mihomo GUI，**非 LSPosed 模块**）对母版有五处裁剪，同步母版更新时注意保留：
 #     ① 构建环境：多了 Go 工具链 + 子模块（mihomo / scripta）+ 先跑 downloadGeoFiles
-#     ② 版本号解析：versionName 在 buildSrc 常量里、versionCode 由 CI 运行序号生成（不是 versionName= 字面量）
+#     ② 版本号解析：versionName 在 build-logic 常量里、versionCode 由 CI 运行序号生成（不是 versionName= 字面量）
 #     ③ 产物门禁：去掉 libxposed 三件套那几条，改查包名+显示名+启动类 / ABI / 核心 so / IP 地理数据 / 签名
 #     ④ 产物定位：`base.archivesName` 把 APK 名定成 `Mishka-v<版本>(<code>)-<abi>-<变体>.apk`（随版本与
 #        versionCode 变化）⇒ 母版钉死的产物路径在此必然落空，改按变体目录 glob 取并要求恰好一个
@@ -54,9 +54,9 @@ env:
   # 产物名前缀**不另设常量**：直接取下面的 FORK_LABEL（fork 显示名）⇒ 前缀 / 显示名 / 门禁同源，
   #   改 label 一处即全变。名字进文件名与下载 URL ⇒ label 只允许 A-Za-z0-9._-（中文名与括号在此
   #   会变成 URL 不友好字符），ci-fork-identity.py 对 --label 有断言。
-  # 版本号来源文件：Mishka 的 versionName 是 buildSrc 里的常量（sed 取第一处 VERSION_NAME），
+  # 版本号来源文件：Mishka 的 versionName 是 build-logic 里的常量（sed 取第一处 VERSION_NAME），
   # versionCode = 下面的基数 + 本次运行序号（本地构建没这个属性时仍用 git 提交数）⇒ 见 Resolve APK name 步骤
-  VERSION_FILE: buildSrc/src/main/kotlin/ProjectConfig.kt
+  VERSION_FILE: build-logic/src/main/kotlin/ProjectConfig.kt
   # 基数：改用单调的运行序号后必须从高于历史上所有提交数的值起步，否则第一次改用又是一次降级，
   #   装机仍要强制安装（提交数会被 squash 合并、分支切换拉低，所以不能拿它当 versionCode）
   #   5000 = 上游提交数（244）留余量：上游约 446 提交/年 ⇒ 十年内追不上；再大只是让包名更长
@@ -163,7 +163,7 @@ jobs:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
-      # Go 核心（libmihomo.so）由 buildSrc 的 GoBuildTask 在 preBuild 阶段现编，故 CI 必须有 Go。
+      # Go 核心（libmihomo.so）由 build-logic 的 GoBuildTask 在 preBuild 阶段现编，故 CI 必须有 Go。
       #   go.sum 不在仓库根，缓存键默认会去找根目录的 go.sum ⇒ 不指到实际编译的模块上就是每次
       #   miss、全量重下 mihomo 的依赖树（Go 与 NDK 工具链的版本由 go.mod / AGP 决定，不额外钉）。
       - name: Set up Go

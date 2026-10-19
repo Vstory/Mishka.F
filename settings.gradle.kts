@@ -31,6 +31,7 @@ dependencyResolutionManagement {
     }
 }
 
+includeBuild("build-logic")
 includeBuild("scripta")
 
 include(":app")

@@ -432,21 +432,30 @@ class HomeViewModel(
     }
 
     private fun providerTrafficInfo(providers: ProvidersResponse): ImmutableList<ProviderTrafficInfo> {
-        return providers.providers
-            .mapNotNull { (fallbackName, provider) ->
-                // "default" 等 Compatible 特殊 provider 是 proxies: 段的运行时聚合，不是订阅集合
-                if (provider.vehicleType.equals(VEHICLE_TYPE_COMPATIBLE, ignoreCase = true)) return@mapNotNull null
+        val nonCompatible = providers.providers.filterValues {
+            !it.vehicleType.equals(VEHICLE_TYPE_COMPATIBLE, ignoreCase = true)
+        }
+        val sub = activeSubscription.value
+        // 单 provider 场景且内核未读到其 subscriptionInfo 时，以主订阅 DB 流量兜底（模板订阅提取自该唯一 provider）
+        val fallbackSubInfo = if (nonCompatible.size == 1 && sub != null && sub.total > 0) sub else null
+        return nonCompatible
+            .map { (fallbackName, provider) ->
                 val info = provider.subscriptionInfo
+                val hasTraffic = info != null || fallbackSubInfo != null
+                val upload = info?.Upload ?: fallbackSubInfo?.upload ?: 0
+                val download = info?.Download ?: fallbackSubInfo?.download ?: 0
+                val total = info?.Total ?: fallbackSubInfo?.total ?: 0
+                val expire = info?.Expire ?: fallbackSubInfo?.expire ?: 0
                 ProviderTrafficInfo(
                     id = fallbackName,
                     name = provider.name.ifBlank { fallbackName },
                     nodeCount = provider.proxies.size,
                     updatedAt = provider.updatedAt,
-                    hasTraffic = info != null,
-                    upload = info?.Upload ?: 0,
-                    download = info?.Download ?: 0,
-                    total = info?.Total ?: 0,
-                    expire = info?.Expire ?: 0,
+                    hasTraffic = hasTraffic,
+                    upload = upload,
+                    download = download,
+                    total = total,
+                    expire = expire,
                 )
             }
             .sortedBy { it.name.lowercase() }
