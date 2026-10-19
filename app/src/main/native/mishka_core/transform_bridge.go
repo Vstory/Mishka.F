@@ -76,7 +76,7 @@ func mishkaValidateTransform(cWorkDir, cTransform, cKey *C.char) *C.char {
 		if err != nil {
 			return "error: unmarshal config: " + err.Error()
 		}
-		patchProvidersPath(rawCfg, filepath.Join(workDir, "providers"))
+		patchProvidersPath(rawCfg, workDir)
 		cfg, err := config.ParseRawConfig(rawCfg)
 		if err != nil {
 			return "error: validate config: " + err.Error()

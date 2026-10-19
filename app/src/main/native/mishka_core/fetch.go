@@ -141,11 +141,7 @@ func runFetchAndValid(
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
-	providersDir := P.Join(workDir, "providers")
-	if err := os.MkdirAll(providersDir, 0700); err != nil {
-		return nil, fmt.Errorf("create providers dir: %w", err)
-	}
-	patchProvidersPath(rawCfg, providersDir)
+	patchProvidersPath(rawCfg, workDir)
 
 	prefetchProviders(ctx, token, rawCfg, effectiveUA)
 
@@ -273,29 +269,125 @@ func parseUserinfo(header string, result *FetchResult) {
 	}
 }
 
-// 把每个 provider 的 path 改写成 workDir/providers/<basename> 绝对路径，
-// Parse 时 mihomo 用 constant.Path.Resolve(provider.path) 解析，相对路径会落到 homeDir 之外。
-func patchProvidersPath(cfg *config.RawConfig, providersDir string) {
-	forEachProviders(cfg, func(_, _ int, _ string, provider map[string]any, _ string) {
+// 把每个 provider 的 path 改写成与运行时一致的绝对路径（workDir/proxies/<hash> 或 workDir/rules/<hash>，
+// 或用户显式指定的相对路径 workDir/<path>）。Parse 时 mihomo 用 constant.Path.Resolve(provider.path) 解析，
+// 绝对路径能保证 JNI in-process 校验与运行时 subprocess 读取完全一致。
+func patchProvidersPath(cfg *config.RawConfig, workDir string) {
+	forEachProviders(cfg, func(_, _ int, _ string, provider map[string]any, kind string) {
 		urlStr, _ := provider["url"].(string)
 		pathStr, _ := provider["path"].(string)
 		if urlStr == "" && pathStr == "" {
 			return
 		}
-		fileName := utils.MakeHash([]byte(urlStr)).String()
+		var fullPath string
 		if pathStr != "" {
-			fileName = filepath.Base(pathStr)
+			if filepath.IsAbs(pathStr) {
+				fullPath = pathStr
+			} else {
+				fullPath = filepath.Join(workDir, pathStr)
+			}
+		} else {
+			fileName := utils.MakeHash([]byte(urlStr)).String()
+			fullPath = filepath.Join(workDir, kind, fileName)
 		}
-		provider["path"] = P.Join(providersDir, fileName)
+		provider["path"] = fullPath
 	})
+}
+
+func parseProviderHeader(raw any) http.Header {
+	if raw == nil {
+		return nil
+	}
+	header := make(http.Header)
+	switch m := raw.(type) {
+	case map[string]any:
+		for k, v := range m {
+			addHeaderValues(header, k, v)
+		}
+	case map[any]any:
+		for k, v := range m {
+			addHeaderValues(header, fmt.Sprint(k), v)
+		}
+	case map[string][]string:
+		for k, v := range m {
+			for _, val := range v {
+				header.Add(k, val)
+			}
+		}
+	case map[string]string:
+		for k, v := range m {
+			header.Add(k, v)
+		}
+	}
+	if len(header) == 0 {
+		return nil
+	}
+	return header
+}
+
+func addHeaderValues(header http.Header, key string, val any) {
+	if val == nil {
+		return
+	}
+	switch v := val.(type) {
+	case string:
+		if strings.TrimSpace(v) != "" {
+			header.Add(key, v)
+		}
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				header.Add(key, s)
+			}
+		}
+	case []string:
+		for _, s := range v {
+			if strings.TrimSpace(s) != "" {
+				header.Add(key, s)
+			}
+		}
+	default:
+		s := fmt.Sprint(v)
+		if strings.TrimSpace(s) != "" {
+			header.Add(key, s)
+		}
+	}
+}
+
+func parseProviderSizeLimit(val any) int64 {
+	switch v := val.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case uint:
+		return int64(v)
+	case uint64:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func parseProviderInfo(provider map[string]any) (http.Header, int64) {
+	header := parseProviderHeader(provider["header"])
+	sizeLimit := parseProviderSizeLimit(provider["size-limit"])
+	return header, sizeLimit
 }
 
 // best-effort：单个下载失败不阻塞 Parse；缺 provider 时 Parse 自己会报错。
 func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, userAgent string) {
 	type item struct {
-		key  string
-		url  string
-		dest string
+		key       string
+		url       string
+		dest      string
+		header    http.Header
+		sizeLimit int64
 	}
 	var items []item
 	forEachProviders(cfg, func(_, _ int, key string, provider map[string]any, _ string) {
@@ -307,7 +399,14 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 		if _, err := os.Stat(dest); err == nil {
 			return
 		}
-		items = append(items, item{key: key, url: urlStr, dest: dest})
+		header, sizeLimit := parseProviderInfo(provider)
+		items = append(items, item{
+			key:       key,
+			url:       urlStr,
+			dest:      dest,
+			header:    header,
+			sizeLimit: sizeLimit,
+		})
 	})
 
 	total := len(items)
@@ -339,7 +438,7 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 				return
 			}
 			if u, err := url.Parse(it.url); err == nil {
-				_ = fetchProvider(ctx, u, it.dest, userAgent)
+				_ = fetchProvider(ctx, u, it.dest, userAgent, it.header, it.sizeLimit)
 			}
 			setProgress(token, FetchProgress{
 				Action:      "FetchProviders",
@@ -351,6 +450,7 @@ func prefetchProviders(ctx context.Context, token int32, cfg *config.RawConfig, 
 	}
 	wg.Wait()
 }
+
 
 // 写临时文件再 rename（同目录 rename 在 ext4/f2fs 上原子）。直写目标路径时进程被杀 /
 // 断电 / OOM kill 都会留下截断的非空 YAML，而 prefetch 只按 os.Stat 判存在就跳过，
@@ -390,10 +490,16 @@ func writeFileAtomic(dest string, src io.Reader) (int64, error) {
 	return n, nil
 }
 
-func fetchProvider(ctx context.Context, u *url.URL, dest string, userAgent string) error {
+func fetchProvider(ctx context.Context, u *url.URL, dest string, userAgent string, customHeader http.Header, sizeLimit int64) error {
 	subCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	header := http.Header{"User-Agent": []string{userAgent}}
+	header := http.Header{}
+	for k, v := range customHeader {
+		header[k] = v
+	}
+	if header.Get("User-Agent") == "" {
+		header.Set("User-Agent", userAgent)
+	}
 	resp, err := clashHttp.HttpRequest(subCtx, u.String(), http.MethodGet, header, nil)
 	if err != nil {
 		return err
@@ -405,7 +511,11 @@ func fetchProvider(ctx context.Context, u *url.URL, dest string, userAgent strin
 	if err := os.MkdirAll(path.Dir(dest), 0700); err != nil {
 		return err
 	}
-	_, err = writeFileAtomic(dest, resp.Body)
+	var reader io.Reader = resp.Body
+	if sizeLimit > 0 {
+		reader = io.LimitReader(reader, sizeLimit)
+	}
+	_, err = writeFileAtomic(dest, reader)
 	return err
 }
 
