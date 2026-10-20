@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # refresh_ci_page.sh — CI 滚动发布页刷新器（跨语言共享模板）
-# TEMPLATE_VERSION=1.0.2    # 模板版本号（模板内容变更时 bump；勿删）
+# TEMPLATE_VERSION=1.0.3    # 模板版本号（模板内容变更时 bump；勿删）
 #
 # 作用：把固定 tag 的 Release 正文重建为「最近 N 组构建」的表格，并删除被淘汰的旧资产。
 #       与语言无关：任何「push 即出包、产物追加进同一页」的项目都能用。
@@ -88,9 +88,9 @@ gh api --paginate "${HDR[@]}" "$REL_API" \
       if (ts !~ /^[0-9]{8}-[0-9]{4}$/) next
       if (short !~ /^[0-9a-f]{8}\.apk$/) next
       sub(/^ci-/, "", var); sub(/\.apk$/, "", short)
-      # 末列 = 组内序（debug 先）：同一组的两个变体共用一个组键，只按组键排会让 release
-      #   排到 debug 前面，与脚注「排障优先用 debug」相反。
-      printf "%s|%s\t%s\t%s\t%s\t%s\t%s\t%d\n", ts, short, name, id, vc, var, size, (var == "debug" ? 0 : 1)
+      # 末列 = 组内序（release 先）：同一组的两个变体共用一个组键，只按组键排则组内顺序
+      #   取决于上传先后；release 是日常用包，固定排在 debug 上面。
+      printf "%s|%s\t%s\t%s\t%s\t%s\t%s\t%d\n", ts, short, name, id, vc, var, size, (var == "release" ? 0 : 1)
     }' > "$SNAP"
 echo "匹配命名规则的 asset 共 $(wc -l < "$SNAP") 个"
 sort -t$'\t' -k1,1r -k7,7n "$SNAP" > "$SORTED"
