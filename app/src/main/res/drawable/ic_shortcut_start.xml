@@ -5,10 +5,12 @@
     android:tint="?android:attr/colorControlNormal"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- 描边而非填充：与 ic_tile.xml 及 miuix-icons 的线宽形态保持一致 -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M7,4h3v16h-3z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M13,4l9,8l-9,8z" />
+        android:fillColor="#00000000"
+        android:pathData="M8,5.5L18.5,12L8,18.5Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="2" />
 </vector>
