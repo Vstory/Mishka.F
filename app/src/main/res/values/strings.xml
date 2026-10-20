@@ -620,4 +620,6 @@
         <item quantity="other">%1$d overrides selected</item>
     </plurals>
     <string name="subscription_overrides">Overrides</string>
+    <string name="shortcut_start_long">Start proxy</string>
+    <string name="shortcut_stop_long">Stop proxy</string>
 </resources>

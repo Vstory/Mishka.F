@@ -67,6 +67,14 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             '"top.yukonga.mishka.service.BootReceiver"',
             1,
         ),
+        # shortcuts.xml 的 targetPackage 是 applicationId 而非 namespace：不改则长按图标的
+        #   「启动 / 停止代理」解析到上游包名，点了没反应。targetClass 走 namespace，不在此列。
+        (
+            "app/src/main/res/xml/shortcuts.xml",
+            'android:targetPackage="top.yukonga.mishka"',
+            f'android:targetPackage="{app_id}"',
+            2,
+        ),
         (
             "app/src/main/res/values/strings.xml",
             '<string name="app_name" translatable="false">Mishka</string>',

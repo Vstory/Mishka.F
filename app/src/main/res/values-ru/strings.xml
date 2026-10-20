@@ -622,4 +622,6 @@
         <item quantity="other">Выбрано %1$d переопределения</item>
     </plurals>
     <string name="subscription_overrides">Переопределения</string>
+    <string name="shortcut_start_long">Запустить прокси</string>
+    <string name="shortcut_stop_long">Остановить прокси</string>
 </resources>

@@ -617,4 +617,6 @@
         <item quantity="other">已選擇 %1$d 項覆寫</item>
     </plurals>
     <string name="subscription_overrides">覆寫</string>
+    <string name="shortcut_start_long">啟動代理</string>
+    <string name="shortcut_stop_long">停止代理</string>
 </resources>

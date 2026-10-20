@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 两条都指向 ExternalControlActivity：启停的校验全部收在
+         ProxyServiceController.applyExternalAction，快捷方式不另开判定路径。
+         action 与 targetPackage 在 Manifest 里另有一份，改名必须两处同改。 -->
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_start"
+        android:shortcutId="start_proxy"
+        android:shortcutLongLabel="@string/shortcut_start_long"
+        android:shortcutShortLabel="@string/home_start">
+        <intent
+            android:action="top.yukonga.mishka.action.START_PROXY"
+            android:targetClass="top.yukonga.mishka.ExternalControlActivity"
+            android:targetPackage="top.yukonga.mishka" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_stop"
+        android:shortcutId="stop_proxy"
+        android:shortcutLongLabel="@string/shortcut_stop_long"
+        android:shortcutShortLabel="@string/home_stop">
+        <intent
+            android:action="top.yukonga.mishka.action.STOP_PROXY"
+            android:targetClass="top.yukonga.mishka.ExternalControlActivity"
+            android:targetPackage="top.yukonga.mishka" />
+    </shortcut>
+</shortcuts>

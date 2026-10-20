@@ -40,6 +40,10 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
             </intent-filter>
+            <!-- 长按图标弹出的「启动 / 停止代理」，声明见 res/xml/shortcuts.xml -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <!-- clash:// / clashmeta:// 订阅一键导入深链入口 -->
