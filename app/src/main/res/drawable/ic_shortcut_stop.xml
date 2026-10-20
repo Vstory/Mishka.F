@@ -3,14 +3,15 @@
     android:width="24dp"
     android:height="24dp"
     android:tint="?android:attr/colorControlNormal"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <!-- 描边而非填充：与 ic_tile.xml 及 miuix-icons 的线宽形态保持一致 -->
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M8,7h8a1.2,1.2 0 0 1 1.2,1.2v7.6a1.2,1.2 0 0 1 -1.2,1.2h-8a1.2,1.2 0 0 1 -1.2,-1.2v-7.6a1.2,1.2 0 0 1 1.2,-1.2z"
-        android:strokeColor="#FFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeWidth="2" />
+    android:viewportWidth="1134"
+    android:viewportHeight="1134">
+    <!-- 与 miuix-icons 的 MiuixIcons.Play / Pause 同源（官方 SVG 的 Y 轴翻转改用 group 表达）；
+         改图标请重新取官方 SVG，不要手绘 -->
+    <group
+        android:scaleY="-1"
+        android:translateY="1134">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M892.5 124.5 V1009.5 Q892.5 1023.5 884.5 1031.5 Q876.5 1039.5 862.5 1039.5 H832.5 Q818.5 1039.5 810.5 1031.5 Q802.5 1023.5 802.5 1009.5 V124.5 Q802.5 110.5 810.5 102.5 Q818.5 94.5 832.5 94.5 H862.5 Q876.5 94.5 884.5 102.5 Q892.5 110.5 892.5 124.5 Z M331.5 124.5 V1009.5 Q331.5 1023.5 323.5 1031.5 Q315.5 1039.5 301.5 1039.5 H271.5 Q257.5 1039.5 249.5 1031.5 Q241.5 1023.5 241.5 1009.5 V124.5 Q241.5 110.5 249.5 102.5 Q257.5 94.5 271.5 94.5 H301.5 Q315.5 94.5 323.5 102.5 Q331.5 110.5 331.5 124.5 Z" />
+    </group>
 </vector>
