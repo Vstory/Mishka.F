@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 两条都指向 ExternalControlActivity：启停的校验全部收在
-         ProxyServiceController.applyExternalAction，快捷方式不另开判定路径。
+    <!-- 启停的校验全部收在 ProxyServiceController.applyExternalAction，快捷方式不另开判定路径。
          action 与 targetPackage 在 Manifest 里另有一份，改名必须两处同改。 -->
 
     <shortcut
