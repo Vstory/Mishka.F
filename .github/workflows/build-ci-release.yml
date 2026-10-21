@@ -1,6 +1,6 @@
 # ══════════════════════════════════════════════════════════════════════════════
 # CI 滚动发布：任意分支 push 即出包，发进固定 tag 的同一个滚动页。
-#   母版：知识库 100_System/templates/build-ci.workflow.yml（规程：GitHub域/CI滚动发布页流程.md）
+#   母版：知识库 100_System/templates/build-ci-release.workflow.yml（规程：GitHub域/CI滚动发布页流程.md）
 #   ⚠️ 本项目（Mishka = mihomo GUI，**非 LSPosed 模块**）对母版有五处裁剪，同步母版更新时注意保留：
 #     ① 构建环境：多了 Go 工具链 + 子模块（mihomo / scripta）+ 先跑 downloadGeoFiles
 #     ② 版本号解析：versionName 在 build-logic 常量里、versionCode 由 CI 运行序号生成（不是 versionName= 字面量）
@@ -15,12 +15,12 @@
 #     ⑥ 产物名前缀：**不设母版的 PREFIX 常量**，直接用 FORK_LABEL（fork 显示名）—— 前缀与身份
 #        改写、门禁同源，改 label 一处即全变（见 Resolve APK name / Upload artifact / Refresh）
 # ══════════════════════════════════════════════════════════════════════════════
-name: Build · CI
+name: Build · CI Release
 
 # 任意分支 push 都出包（只出 release 变体），发进固定 tag 的**同一个滚动页**，
 # 产物按时间戳追加、页面永不新增。分支本来就是用来试的 ⇒ 每次提交都该能立刻拿到包。
 # 多分支并发共用这一页（不设并发锁）—— 页面只有一张表，每个包一行，不按分支分页。
-run-name: "Build · CI · ${{ github.ref_name }}"
+run-name: "Build · CI Release · ${{ github.ref_name }}"
 
 on:
   push:

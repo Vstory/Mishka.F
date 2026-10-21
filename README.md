@@ -108,7 +108,7 @@ git submodule update --init --recursive
 
 ### CI 出包
 
-任意分支 push 都会触发 `Build · CI`（[.github/workflows/build-ci.yml](.github/workflows/build-ci.yml)），产物发到固定的 [`ci` 滚动页](https://github.com/Vstory/Mishka/releases/tag/ci)——只留最近 6 组构建、页面地址永久固定：
+任意分支 push 都会触发 `Build · CI Release`（[.github/workflows/build-ci-release.yml](.github/workflows/build-ci-release.yml)），产物发到固定的 [`ci` 滚动页](https://github.com/Vstory/Mishka/releases/tag/ci)——只留最近 6 组构建、页面地址永久固定：
 
 - 产物名 `Mishka.F_<版本>.<code>_<时间>_ci-<变体>_<短号>.apk`：前缀是 fork 显示名，`<时间>` 为北京时间，`<短号>` 是提交 SHA 前 8 位。
 - CI 出的是 **fork 包**（`top.yukonga.mishka.fork` / 显示名 `Mishka.F`）：与上游原版并存安装、也可同时开启，构建期改写工作区，仓库源码保持与上游一致。
