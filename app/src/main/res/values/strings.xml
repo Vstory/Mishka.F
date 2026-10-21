@@ -175,9 +175,7 @@
     <string name="proxy_start_first">Please start the proxy service first</string>
     <string name="proxy_mode_direct_hint">Direct mode is active: all traffic bypasses the proxy. Group selections are saved but only take effect after switching back to rule mode.</string>
     <string name="proxy_mode_global_hint">Global mode is active: only the GLOBAL group routes traffic. Selections in other groups take effect after switching back to rule mode.</string>
-    <string name="proxy_refresh_icon">Refresh Icons</string>
     <string name="proxy_single_column">Single Column</string>
-    <string name="proxy_show_global_group">GLOBAL Group</string>
     <string name="proxy_timeout">Timeout</string>
     <string name="proxy_sort_title">Sort</string>
     <string name="proxy_sort_default">Default</string>

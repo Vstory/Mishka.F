@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.mishka.R
 import top.yukonga.mishka.platform.PlatformStorage
 import top.yukonga.mishka.platform.StorageKeys
+import top.yukonga.mishka.platform.SystemDnsObserver
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -116,6 +117,7 @@ class MihomoRunner(private val context: Context) {
                 add("-d"); add(workDir.absolutePath)
                 add("-f"); add(configFile.absolutePath)
                 add("--override-json"); add(overrideJsonPath)
+                add("--system-dns"); add(SystemDnsObserver(context).snapshot().joinToString(","))
                 if (transformPath != null) {
                     add("--transform"); add(transformPath)
                     if (preferTransformMixedPort) add("--prefer-transform-mixed-port")

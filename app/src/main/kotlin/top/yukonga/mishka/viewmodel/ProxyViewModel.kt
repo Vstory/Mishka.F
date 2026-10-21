@@ -39,8 +39,8 @@ data class ProxyGroupUi(
     val delays: ImmutableMap<String, Int> = persistentMapOf(),
     val nodeTypes: ImmutableMap<String, String> = persistentMapOf(),
     val icon: String = "",
-    // 用户固定到的节点；空串 = 自动择优。Selector 组恒为空
     val fixed: String = "",
+    val testUrl: String = "",
 ) {
     /** 对应 mihomo 的 `outboundgroup.SelectAble`；LoadBalance / Relay 不实现，PUT 返回 400 */
     val isSelectable: Boolean
@@ -82,10 +82,6 @@ class ProxyViewModel(
     private val _singleColumn = MutableStateFlow(loadInitialSingleColumn())
     val singleColumn: StateFlow<Boolean> = _singleColumn.asStateFlow()
 
-    // 纯展示偏好，与排序、单列一样在 UI 层应用，不重新拉数据
-    private val _showGlobalGroup = MutableStateFlow(loadInitialShowGlobalGroup())
-    val showGlobalGroup: StateFlow<Boolean> = _showGlobalGroup.asStateFlow()
-
     private var repository: MihomoRepository? = null
 
     // mihomo 重启切 client 时取消旧的 loadProxies 协程，防止其 HTTP 响应已读完但 UI 写回
@@ -114,14 +110,6 @@ class ProxyViewModel(
 
     private fun loadInitialSingleColumn(): Boolean =
         storage?.getString(StorageKeys.PROXY_NODE_SINGLE_COLUMN, "false") == "true"
-
-    fun updateShowGlobalGroup(enabled: Boolean) {
-        _showGlobalGroup.value = enabled
-        storage?.putString(StorageKeys.PROXY_SHOW_GLOBAL_GROUP, if (enabled) "true" else "false")
-    }
-
-    private fun loadInitialShowGlobalGroup(): Boolean =
-        storage?.getString(StorageKeys.PROXY_SHOW_GLOBAL_GROUP, "true") != "false"
 
     fun setRepository(repo: MihomoRepository?) {
         if (repository === repo) return
@@ -165,12 +153,17 @@ class ProxyViewModel(
                 val runtimeProxies = proxiesResult.getOrNull()?.proxies ?: emptyMap()
                 val allProxies = runtimeProxies.toMutableMap()
                 val providerOf = mutableMapOf<String, String>()
+                runtimeProxies.forEach { (name, node) ->
+                    if (node.providerName.isNotEmpty()) {
+                        providerOf[name] = node.providerName
+                    }
+                }
                 providersResult.getOrNull()?.providers?.forEach { (providerName, provider) ->
                     provider.proxies.forEach { node ->
                         if (node.name !in runtimeProxies) {
                             allProxies.putIfAbsent(node.name, node)
-                            providerOf.putIfAbsent(node.name, providerName)
                         }
+                        providerOf.putIfAbsent(node.name, providerName)
                     }
                 }
                 nodeProviderMap = providerOf
@@ -180,12 +173,13 @@ class ProxyViewModel(
                     ?.mapIndexed { index, name -> name to index }
                     ?.toMap() ?: emptyMap()
 
-                // GLOBAL 常驻列表：全局模式置顶（此时它是唯一生效的出口），其余模式沉底
+                // 过滤 hidden 策略组；GLOBAL 同样遵循 hidden，但在全局模式下作为唯一生效出口强制保留
+                val showGlobal = globalGroup != null && (!globalGroup.hidden || mode == MODE_GLOBAL)
                 val orderedGroups = groupsResponse.proxies
-                    .filter { it.name != GLOBAL_GROUP }
+                    .filter { it.name != GLOBAL_GROUP && !it.hidden }
                     .sortedBy { orderMap[it.name] ?: Int.MAX_VALUE }
                 val arrangedGroups = when {
-                    globalGroup == null -> orderedGroups
+                    globalGroup == null || !showGlobal -> orderedGroups
                     mode == MODE_GLOBAL -> listOf(globalGroup) + orderedGroups
                     else -> orderedGroups + globalGroup
                 }
@@ -224,6 +218,7 @@ class ProxyViewModel(
                             nodeTypes = nodeTypes.toPersistentMap(),
                             icon = node.icon,
                             fixed = node.fixed,
+                            testUrl = node.testUrl,
                         )
                     }
                     .toPersistentList()
@@ -292,8 +287,10 @@ class ProxyViewModel(
     fun testGroupDelay(group: String) {
         val repo = repository ?: return
         if (group in _uiState.value.testingGroups) return
-        val nodes = groupOf(group)?.all ?: return
+        val groupUi = groupOf(group)
+        val nodes = groupUi?.all ?: return
         if (nodes.isEmpty()) return
+        val groupTestUrl = groupUi.testUrl.takeIf { it.isNotEmpty() }
         _uiState.value = _uiState.value.copy(
             testingGroups = (_uiState.value.testingGroups + group).toPersistentSet(),
         )
@@ -309,9 +306,11 @@ class ProxyViewModel(
                                 // 单节点失败是正常结果，不能让它终止整组
                                 val provider = nodeProviderMap[nodeName]
                                 if (provider != null) {
-                                    repo.getProviderProxyDelay(provider, nodeName)
+                                    if (groupTestUrl != null) repo.getProviderProxyDelay(provider, nodeName, testUrl = groupTestUrl)
+                                    else repo.getProviderProxyDelay(provider, nodeName)
                                 } else {
-                                    repo.getProxyDelay(nodeName)
+                                    if (groupTestUrl != null) repo.getProxyDelay(nodeName, testUrl = groupTestUrl)
+                                    else repo.getProxyDelay(nodeName)
                                 }
                             }
                         }

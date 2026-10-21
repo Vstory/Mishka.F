@@ -28,6 +28,7 @@ import io.github.g00fy2.quickie.QRResult
 import io.github.g00fy2.quickie.ScanCustomCode
 import io.github.g00fy2.quickie.config.BarcodeFormat
 import io.github.g00fy2.quickie.config.ScannerConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.get
 import top.yukonga.mishka.data.api.MihomoConnectionManager
@@ -184,7 +185,8 @@ class MainActivity : ComponentActivity() {
         // 代理组图标下载走 mihomo mixed-port（Mishka 自身绕过 TUN，直连境外图标 CDN 极慢）；
         // 不受订阅走代理开关约束，代理运行中即生效
         val iconProxyResolver: SubscriptionProxyResolver = get()
-        top.yukonga.mishka.ui.platform.IconLoader.setProxyResolver {
+        val appScope: CoroutineScope = get()
+        top.yukonga.mishka.ui.platform.IconLoader.init(appScope) {
             iconProxyResolver.resolve(requireUserToggle = false)
         }
 

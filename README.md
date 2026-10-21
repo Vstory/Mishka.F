@@ -27,6 +27,7 @@
   - **ROOT TPROXY** —— 内核态透明代理（iptables + fwmark），性能接近直连
 - **分应用代理** —— 白/黑名单，三模式各自走 VpnService / `include-package` / iptables uid-owner
 - **热点流量处置**（ROOT）—— 支持绕过代理或透明代理（TPROXY）两种模式
+- **系统 DNS 同步** —— 启动时初始化转发子进程；应用进程监听非 VPN 网络的 DNS 变化，同步更新 JNI 导入核心与运行时核心，并刷新直连、节点域名等解析缓存
 
 **订阅管理**
 

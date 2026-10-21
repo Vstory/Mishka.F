@@ -15,6 +15,8 @@ data class ProviderInfo(
     val updatedAt: String = "",
     val subscriptionInfo: SubscriptionInfo? = null,
     val proxies: List<ProxyNode> = emptyList(),
+    val testUrl: String = "",
+    val expectedStatus: String = "",
 )
 
 @Serializable
@@ -30,6 +32,7 @@ data class RuleProviderInfo(
     val vehicleType: String = "",
     val updatedAt: String = "",
     val ruleCount: Int = 0,
+    val format: String = "",
 )
 
 @Serializable

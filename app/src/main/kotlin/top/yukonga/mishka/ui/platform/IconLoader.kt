@@ -9,14 +9,23 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.statement.readRawBytes
 import io.ktor.http.Url
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import top.yukonga.mishka.ui.platform.IconLoader.FAILURE_RETRY_INTERVAL
-import top.yukonga.mishka.ui.platform.IconLoader.setProxyResolver
+import top.yukonga.mishka.platform.ProxyServiceBridge
+import top.yukonga.mishka.platform.ProxyState
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
@@ -36,7 +45,7 @@ object IconLoader {
     private const val MAX_ENTRIES = 64
     private const val MAX_FAILURE_ENTRIES = 128
     private const val MAX_PARALLEL_DOWNLOADS = 3
-    private val FAILURE_RETRY_INTERVAL = 60.seconds
+    private val FAILURE_RETRY_INTERVAL = 10.seconds
     private val PROXY_RESOLVE_CACHE_TTL = 10.seconds
 
     private val semaphore = Semaphore(MAX_PARALLEL_DOWNLOADS)
@@ -49,6 +58,10 @@ object IconLoader {
     private val failures = LinkedHashMap<String, TimeMark>()
 
     private var proxyResolver: (suspend () -> String?)? = null
+    private var stateJob: Job? = null
+
+    private val _iconVersion = MutableStateFlow(0)
+    val iconVersion: StateFlow<Int> = _iconVersion.asStateFlow()
 
     // 短 TTL 缓存解析结果：一屏图标并发下载时避免每个都查一次 mihomo API
     private var resolvedProxy: Pair<TimeMark, String?>? = null
@@ -57,9 +70,28 @@ object IconLoader {
     private var directClient: HttpClient? = null
     private var proxyClient: Pair<String, HttpClient>? = null
 
-    /** 注入代理解析器（返回 `http://127.0.0.1:<mixed-port>` 或 null 直连），应用初始化时调用一次。 */
-    fun setProxyResolver(resolver: suspend () -> String?) {
+    /** 注入代理解析器并监听服务状态；代理转为 Running 时自动清空失败缓存自愈。 */
+    fun init(scope: CoroutineScope, resolver: suspend () -> String?) {
         proxyResolver = resolver
+        stateJob?.cancel()
+        stateJob = scope.launch {
+            ProxyServiceBridge.state
+                .map { it.state == ProxyState.Running }
+                .distinctUntilChanged()
+                .collect { isRunning ->
+                    if (isRunning) {
+                        invalidateFailures()
+                    }
+                }
+        }
+    }
+
+    suspend fun invalidateFailures() {
+        mutex.withLock {
+            failures.clear()
+            resolvedProxy = null
+        }
+        _iconVersion.update { it + 1 }
     }
 
     suspend fun loadIcon(url: String): ImageBitmap? {
@@ -95,7 +127,11 @@ object IconLoader {
                 mutex.withLock { cache[url] }?.let { return@withPermit it }
                 try {
                     val client = obtainClient()
-                    val bytes = client.get(url).readRawBytes()
+                    val response = client.get(url)
+                    if (response.status.value !in 200..299) {
+                        error("HTTP ${response.status.value}")
+                    }
+                    val bytes = response.readRawBytes()
                     val bitmap = bytes.decodeToImageBitmap()
                     runCatching { IconDiskCache.put(url, bytes) }
                     put(url, bitmap)
@@ -174,8 +210,10 @@ object IconLoader {
         mutex.withLock {
             cache.clear()
             failures.clear()
+            resolvedProxy = null
         }
         runCatching { withContext(Dispatchers.IO) { IconDiskCache.clear() } }
+        _iconVersion.update { it + 1 }
     }
 }
 

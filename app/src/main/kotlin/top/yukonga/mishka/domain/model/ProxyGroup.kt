@@ -19,4 +19,9 @@ data class ProxyGroupDetail(
     val now: String = "",
     val all: List<ProxyNode> = emptyList(),
     val history: List<ProxyHistory> = emptyList(),
+    val hidden: Boolean = false,
+    val testUrl: String = "",
+    val expectedStatus: String = "",
+    val icon: String = "",
+    val fixed: String = "",
 )

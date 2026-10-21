@@ -5,6 +5,10 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Process
 import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -17,6 +21,7 @@ import top.yukonga.mishka.di.dataModule
 import top.yukonga.mishka.di.viewModelModule
 import top.yukonga.mishka.platform.PlatformStorage
 import top.yukonga.mishka.platform.StorageKeys
+import top.yukonga.mishka.platform.SystemDnsObserver
 import top.yukonga.mishka.platform.initToastPlatform
 import top.yukonga.mishka.service.NotificationHelper
 import top.yukonga.mishka.service.ProfileFileOps
@@ -35,6 +40,7 @@ class MishkaApplication : Application() {
 
     // 自动更新闹钟随 imported 表对账，进程一起就接上（后台服务拉起的进程同样需要）
     private val updateScheduler: ProfileUpdateScheduler by inject()
+    private val appScope: CoroutineScope by inject()
 
     override fun onCreate() {
         super.onCreate()
@@ -51,6 +57,23 @@ class MishkaApplication : Application() {
             homeDir = ProfileFileOps.getGeodataDir(this).absolutePath,
             userAgent = "ClashMetaForAndroid/${BuildConfig.VERSION_NAME}",
         )
+        // JNI 导入核心与转发子进程各有独立的 DNS 全局状态，网络变化必须同时送达两边。
+        appScope.launch {
+            combine(SystemDnsObserver(this@MishkaApplication).observe(), connectionManager.repository) { servers, repository ->
+                servers to repository
+            }.collect { (servers, repository) ->
+                try {
+                    MishkaCoreBridge.updateSystemDns(servers)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update in-process system DNS", e)
+                }
+                repository?.updateSystemDns(servers)?.onFailure {
+                    Log.e(TAG, "Failed to update runtime system DNS", it)
+                }
+            }
+        }
         reclaimRootOwnedImported()
         updateScheduler.start()
 

@@ -20,6 +20,7 @@ import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLPath
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import top.yukonga.mishka.domain.model.ConnectionsResponse
 import top.yukonga.mishka.domain.model.DelayResult
@@ -172,6 +173,14 @@ class MihomoApiClient(
             }
         }.body()
 
+    suspend fun updateSystemDns(servers: List<String>) {
+        val response: HttpResponse = client.put("$baseUrl/dns/system") {
+            contentType(ContentType.Application.Json)
+            setBody(servers)
+        }
+        ensureSuccess(response, "system DNS")
+    }
+
     // === 缓存 ===
 
     suspend fun flushFakeIp() {
@@ -202,7 +211,9 @@ class MihomoApiClient(
      */
     private suspend fun ensureSuccess(response: HttpResponse, context: String) {
         if (response.status.isSuccess()) return
-        val detail = runCatching { response.bodyAsText() }.getOrNull().orEmpty()
+        val detail = runCatching { response.bodyAsText() }
+            .onFailure { if (it is CancellationException) throw it }
+            .getOrNull().orEmpty()
         val summary = extractErrorMessage(detail) ?: response.status.description
         throw MihomoApiException("$context: ${response.status.value} $summary")
     }

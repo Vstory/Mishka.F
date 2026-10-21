@@ -175,9 +175,7 @@
     <string name="proxy_start_first">Сначала запустите службу прокси</string>
     <string name="proxy_mode_direct_hint">Активен прямой режим (Direct): весь трафик идет в обход прокси. Выбор групп сохраняется, но вступит в силу только после переключения в режим правил (Rule).</string>
     <string name="proxy_mode_global_hint">Активен глобальный режим (Global): весь трафик направляется через группу GLOBAL. Выбор в остальных группах вступит в силу после переключения в режим правил (Rule).</string>
-    <string name="proxy_refresh_icon">Обновить значки</string>
     <string name="proxy_single_column">В один столбец</string>
-    <string name="proxy_show_global_group">Группа GLOBAL</string>
     <string name="proxy_timeout">Тайм-аут</string>
     <string name="proxy_sort_title">Сортировка</string>
     <string name="proxy_sort_default">По умолчанию</string>

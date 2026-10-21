@@ -32,7 +32,6 @@ import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,7 +62,6 @@ import androidx.compose.ui.util.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
-import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -130,17 +128,8 @@ fun ProxyScreen(
         delay(300.milliseconds)
         singleColumnAnimating = false
     }
-    val showGlobalGroup = viewModel?.showGlobalGroup?.collectAsStateWithLifecycle()?.value != false
     val scrollBehavior = MiuixScrollBehavior()
-    // 全局模式下 GLOBAL 是唯一出口，无视开关必须可选
-    val globalModeActive = uiState.mode == ProxyViewModel.MODE_GLOBAL
-    val groups = remember(uiState.groups, globalModeActive, showGlobalGroup) {
-        if (showGlobalGroup || globalModeActive) {
-            uiState.groups
-        } else {
-            uiState.groups.filter { it.name != ProxyViewModel.GLOBAL_GROUP }.toPersistentList()
-        }
-    }
+    val groups = uiState.groups
 
     val modeHintRes = when (uiState.mode) {
         ProxyViewModel.MODE_DIRECT -> R.string.proxy_mode_direct_hint
@@ -150,7 +139,6 @@ fun ProxyScreen(
 
     val showPopup = remember { mutableStateOf(false) }
     val showSortPopup = remember { mutableStateOf(false) }
-    var iconCacheVersion by remember { mutableIntStateOf(0) }
     val coroutineScope = rememberCoroutineScope()
 
     // 展开状态上提屏幕级：节点行是顶层 lazy item，存 item 内会随其销毁丢失，故用可保存的 SnapshotStateList 统一持有
@@ -298,34 +286,11 @@ fun ProxyScreen(
                                     ListPopupColumn {
                                         DropdownImpl(
                                             text = stringResource(R.string.proxy_single_column),
-                                            optionSize = 3,
+                                            optionSize = 1,
                                             isSelected = singleColumn,
                                             index = 0,
                                             onSelectedIndexChange = {
                                                 viewModel?.updateSingleColumn(!singleColumn)
-                                                showPopup.value = false
-                                            },
-                                        )
-                                        DropdownImpl(
-                                            text = stringResource(R.string.proxy_show_global_group),
-                                            optionSize = 3,
-                                            // 勾选态跟实际结果走，不是偏好值
-                                            isSelected = showGlobalGroup || globalModeActive,
-                                            index = 1,
-                                            enabled = !globalModeActive,
-                                            onSelectedIndexChange = {
-                                                viewModel?.updateShowGlobalGroup(!showGlobalGroup)
-                                                showPopup.value = false
-                                            },
-                                        )
-                                        DropdownImpl(
-                                            text = stringResource(R.string.proxy_refresh_icon),
-                                            optionSize = 3,
-                                            isSelected = false,
-                                            index = 2,
-                                            onSelectedIndexChange = {
-                                                coroutineScope.launch { IconLoader.clear() }
-                                                iconCacheVersion++
                                                 showPopup.value = false
                                             },
                                         )
@@ -422,7 +387,6 @@ fun ProxyScreen(
                                 ProxyGroupHeader(
                                     group = group,
                                     isExpanded = isExpanded,
-                                    iconCacheVersion = iconCacheVersion,
                                     isTesting = group.name in uiState.testingGroups,
                                     onTestDelay = { viewModel?.testGroupDelay(group.name) },
                                     onUnfix = { viewModel?.unfixProxy(group.name) },
@@ -511,7 +475,6 @@ private fun HoldDownEffect(holdDown: Boolean, interactionSource: MutableInteract
 private fun ProxyGroupHeader(
     group: ProxyGroupUi,
     isExpanded: Boolean,
-    iconCacheVersion: Int,
     isTesting: Boolean,
     onTestDelay: () -> Unit,
     onUnfix: () -> Unit,
@@ -542,7 +505,6 @@ private fun ProxyGroupHeader(
         GroupIcon(
             icon = group.icon,
             name = group.name,
-            cacheVersion = iconCacheVersion,
         )
 
         Spacer(Modifier.width(12.dp))
@@ -640,15 +602,16 @@ private fun ProxyGroupHeader(
 private fun GroupIcon(
     icon: String,
     name: String,
-    cacheVersion: Int,
 ) {
     if (icon.isNotEmpty()) {
-        var bitmap by remember(icon, cacheVersion) { mutableStateOf<ImageBitmap?>(null) }
+        val iconVersion by IconLoader.iconVersion.collectAsStateWithLifecycle()
+        var bitmap by remember(icon) { mutableStateOf<ImageBitmap?>(null) }
 
-        LaunchedEffect(icon, cacheVersion) {
-            bitmap = IconLoader.loadIcon(icon)
+        LaunchedEffect(icon, iconVersion) {
+            if (bitmap == null) {
+                bitmap = IconLoader.loadIcon(icon)
+            }
         }
-
         val current = bitmap
         if (current != null) {
             Image(

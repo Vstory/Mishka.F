@@ -56,6 +56,7 @@ interface MihomoRepository {
     suspend fun getRuleProviders(): Result<RuleProvidersResponse>
     suspend fun updateRuleProvider(name: String): Result<Unit>
     suspend fun queryDns(name: String, type: String = "A"): Result<DnsQueryResponse>
+    suspend fun updateSystemDns(servers: List<String>): Result<Unit>
     suspend fun flushFakeIp(): Result<Unit>
     suspend fun flushDnsCache(): Result<Unit>
 

@@ -111,3 +111,13 @@ Java_top_yukonga_mishka_data_bridge_MishkaCoreBridge_nativeValidateTransform(
     free(key);
     return go_cstr_to_jstring(env, result);
 }
+
+JNIEXPORT jstring JNICALL
+Java_top_yukonga_mishka_data_bridge_MishkaCoreBridge_nativeUpdateSystemDns(
+        JNIEnv *env, jclass clazz, jstring jServers) {
+    char *servers = jstring_to_cstr(env, jServers);
+    if (!servers) return NULL;
+    char *result = mishkaUpdateSystemDNS(servers);
+    free(servers);
+    return go_cstr_to_jstring(env, result);
+}

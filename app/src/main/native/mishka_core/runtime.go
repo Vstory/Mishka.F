@@ -63,9 +63,12 @@ func runMihomo() int {
 	fs.StringVar(&secret, "secret", "", "override RESTful API secret")
 	fs.StringVar(&externalController, "ext-ctl", "", "override external controller address")
 	fs.StringVar(&ageSecretKey, "age-secret-key", "", "age secret key to decrypt age-armor encrypted configuration")
+	fs.Func("system-dns", "comma-separated numeric system DNS socket addresses; empty clears", updateSystemDNSCommaList)
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
 	}
+
+	registerSystemDNSRoute()
 
 	// 任何意外走系统 resolver 的代码路径立刻自爆，方便定位（mihomo 应当全程用自己的 DNS 栈）。
 	net.DefaultResolver.PreferGo = true

@@ -9,8 +9,19 @@ data class RulesResponse(
 
 @Serializable
 data class RuleInfo(
+    val index: Int = 0,
     val type: String = "",
     val payload: String = "",
     val proxy: String = "",
     val size: Int = 0,
+    val extra: RuleExtra? = null,
+)
+
+@Serializable
+data class RuleExtra(
+    val disabled: Boolean = false,
+    val hitCount: Long = 0,
+    val hitAt: String = "",
+    val missCount: Long = 0,
+    val missAt: String = "",
 )
