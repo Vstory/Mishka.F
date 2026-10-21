@@ -17,7 +17,7 @@
 # ══════════════════════════════════════════════════════════════════════════════
 name: Build · CI
 
-# 任意分支 push 都出包（debug + release 两个变体，与 NotifyGuard 同口径），发进固定 tag 的**同一个滚动页**，
+# 任意分支 push 都出包（只出 release 变体），发进固定 tag 的**同一个滚动页**，
 # 产物按时间戳追加、页面永不新增。分支本来就是用来试的 ⇒ 每次提交都该能立刻拿到包。
 # 多分支并发共用这一页（不设并发锁）—— 页面只有一张表，每个包一行，不按分支分页。
 run-name: "Build · CI · ${{ github.ref_name }}"
@@ -37,10 +37,8 @@ on:
         description: '构建变体（push 触发时用 PUSH_VARIANT）'
         type: choice
         options:
-          - debug
           - release
-          - both
-        default: both
+        default: release
         required: true
 
 # 并发：**不设并发锁** —— 每次 push 都独立出包，任意分支、任意次数都同时构建（要的是
@@ -88,10 +86,10 @@ env:
   # 只钉变体目录、不钉文件名：产物名是 `base.archivesName` + 版本的组合，随版本与 versionCode 变化
   APK_DIR_DEBUG: app/build/outputs/apk/debug
   APK_DIR_RELEASE: app/build/outputs/apk/release
-  # push 触发时构建哪些变体：一次出 debug + release 两个包（与 NotifyGuard 同口径）。
-  #   Go 核心是**单任务**（buildMihomo，输出在 src/main/jniLibs，与变体无关）⇒ 两个变体共用
+  # push 触发时构建哪些变体：只出 release 一个包。
+  #   Go 核心是**单任务**（buildMihomo，输出在 src/main/jniLibs，与变体无关）⇒ 变体多时共用
   #   同一次 Go/CMake 编译，第二个变体只多付 Kotlin + R8 那一段，不会翻倍。
-  PUSH_VARIANT: both
+  PUSH_VARIANT: release
   # 源码层静态检查（scripts/check_string_format_args.py，母版已随脚手架复制进项目）
   #   项目自有「取资源」包装函数，空格分隔（例：UiText.Res）；Mishka 全用 Compose 的
   #   stringResource（在母版默认白名单里），无需追加
