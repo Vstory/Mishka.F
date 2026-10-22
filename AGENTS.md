@@ -14,6 +14,25 @@ miuix + mihomo 的 Android 代理客户端。单模块 `:app`（`com.android.app
 - 完成后先报告变更与验证结果。**除非用户在当前请求中明确授权，不执行 `git add`/`commit`/`push`**。
 - Commit 用 `<scope>: <summary>`，scope 取 `home`/`proxy`/`subscription`/`settings`/`service`/`native`/`build`/`docs`/`fix`/`chore(deps)`；主题行 ≤ 72 字符、sentence case、无句尾句号；**body 简洁**，只讲代码里看不出的根因与取舍，绝不逐文件复述 diff。
 
+## 合并上游
+
+上游是 [YuKongA/Mishka](https://github.com/YuKongA/Mishka)（remote `upstream`）。**仓库源码保持与上游一致，fork 身份全部在构建期由 `scripts/ci-fork-identity.py` 改写**——这条决定了合并方式：不要为了「让补丁好写」而把端口、包名直接改进源码，锚点一旦失配，构建的前置检查会直接 abort。
+
+### 步骤
+
+1. `git fetch upstream`，`git log --oneline HEAD..upstream/main` 先看这轮多了什么。
+2. `git merge upstream/main`。冲突判断：**fork 新增的功能以 fork 为准**（`ExternalControlActivity`、`ProxyServiceController.applyExternalAction`、strings 里的新增条目、README 自动化段）；**上游的服务层重构以新结构为准**，别为了让旧锚点继续匹配而还原上游代码。
+3. **逐个验锚点，这一步是合并的核心**：
+   `python3 scripts/ci-fork-identity.py --app-id top.yukonga.mishka.fork --label Mishka.F --dry-run`
+   退出码非 0 = 上游动了补丁依赖的字面量。不要用「构建还绿着」代替这一步，锚点失配时脚本是显式 abort 的，值得单独跑一遍看清单。
+4. 失配就改 `scripts/ci-fork-identity.py` 里的目标串，**永远不要改上游代码去迁就脚本**——那会让每一次合并都冲突。先例 `ee2106e`：上游把 `userOverride.mixedPort ?: 7890` 拆成三层 fallback，锚点重定位到 `?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else 7890`，替换的仍是最后的 `else 7890`，语义等价。
+5. mihomo 侧另有行为补丁，按「ROOT 模式约束」末尾那条验证 `sing_tun/server.go` 的 `forwarderBindInterface = true` 仍 active；上游 bump mihomo 时（如 `63c5a2f`）尤其要查，因为行为补丁不体现在 Kotlin 侧。
+6. `git push` 触发 CI，`Verify APK (package + variant + abi + core so + signature)` 会断言包名 `top.yukonga.mishka.fork` 与 versionCode 一致；它绿了才算合并完成。
+
+### 上游动到这些文件时，锚点大概率要跟着改
+
+`service/RuntimeOverrideBuilder.kt`、`service/MishkaTunService.kt`、`service/MihomoRunner.kt`、`service/RootTproxyApplier.kt`、`service/RootTetherHijacker.kt`、`platform/ProxyServiceController.kt`、`data/api/MihomoApiClient.kt`、`ui/screen/home/StatusSection.kt`、`res/values*/strings.xml`。它们都是 `ci-fork-identity.py` 直接改写的目标——先看这些文件的 diff，比事后再查锚点省事。
+
 ## 技术栈
 
 Kotlin（AGP 9 内置，不加独立 kotlin 插件）+ KSP。UI：Compose（经 miuix `-android` 件传递）+ miuix + navigation3 + material-icons-extended。数据：Room 3（反射 builder）+ Ktor + kotlinx-* + Koin。其他：quickie 扫码、hiddenapibypass 预测性返回。核心：mihomo（Mishka fork）。
