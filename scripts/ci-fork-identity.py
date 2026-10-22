@@ -289,8 +289,8 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
         ),
         (
             f"{SERVICE}/MishkaTunService.kt",
-            "userOverride.mixedPort ?: 7890",
-            f"userOverride.mixedPort ?: {MIXED_PORT}",
+            "?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else 7890",
+            f"?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else {MIXED_PORT}",
             1,
         ),
         (
