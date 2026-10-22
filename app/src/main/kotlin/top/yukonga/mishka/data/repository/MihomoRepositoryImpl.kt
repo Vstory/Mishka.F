@@ -42,6 +42,13 @@ class MihomoRepositoryImpl(
     override suspend fun getGroups(): Result<GroupsResponse> = runCatching { apiClient.getGroups() }
     override suspend fun selectProxy(group: String, name: String): Result<Unit> = runCatching { apiClient.selectProxy(group, name) }
     override suspend fun unfixProxy(group: String): Result<Unit> = runCatching { apiClient.unfixProxy(group) }
+    override suspend fun getGroupDelay(
+        name: String,
+        testUrl: String,
+        timeout: Int,
+    ): Result<Map<String, Int>> =
+        runCatching { apiClient.getGroupDelay(name, testUrl, timeout) }
+
     override suspend fun getProxyDelay(
         name: String,
         testUrl: String,

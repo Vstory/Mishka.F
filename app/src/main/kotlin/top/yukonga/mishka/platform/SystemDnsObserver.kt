@@ -8,7 +8,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.SystemClock
-import java.net.Inet6Address
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
@@ -17,6 +16,7 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import java.net.Inet6Address
 
 class SystemDnsObserver(context: Context) {
     private val connectivity = requireNotNull(context.getSystemService(ConnectivityManager::class.java))
@@ -112,10 +112,10 @@ class SystemDnsObserver(context: Context) {
 
     private fun isEligible(capabilities: NetworkCapabilities): Boolean =
         capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
-            !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) &&
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_FOREGROUND)
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_FOREGROUND)
 
     private fun selectDns(networks: Map<Network, NetworkInfo>): List<String>? {
         val now = SystemClock.elapsedRealtime()
@@ -155,7 +155,8 @@ class SystemDnsObserver(context: Context) {
         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> 3
         capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 4
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM &&
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE) -> 5
+                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE) -> 5
+
         else -> 20
     }
 }

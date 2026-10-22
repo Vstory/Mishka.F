@@ -12,6 +12,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import top.yukonga.mishka.data.repository.ProfileProcessor
 import top.yukonga.mishka.data.repository.SubscriptionRepositoryImpl
+import top.yukonga.mishka.service.RootRuntimeCache.sandboxLock
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption

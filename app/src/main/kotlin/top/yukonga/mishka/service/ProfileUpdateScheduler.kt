@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import top.yukonga.mishka.data.database.ImportedDao
 import top.yukonga.mishka.data.database.ImportedEntity
 import top.yukonga.mishka.domain.model.ProfileType
-import top.yukonga.mishka.service.ProfileUpdateScheduler.Companion.MIN_INTERVAL_MS
 import java.io.File
 import kotlin.time.Clock
 

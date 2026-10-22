@@ -81,6 +81,7 @@ object StorageKeys {
 
     // 代理页设置
     const val PROXY_NODE_SORT_OPTION = "proxy_node_sort_option"
+    const val PROXY_GROUP_SHOW_ICONS = "proxy_group_show_icons"
 
     // 节点单列显示，默认 false（每行 2 个）
     const val PROXY_NODE_SINGLE_COLUMN = "proxy_node_single_column"
@@ -101,6 +102,7 @@ object StorageKeys {
     const val NAV_RAIL_EXPANDED = "nav_rail_expanded"
     const val DYNAMIC_NOTIFICATION = "dynamic_notification"
     const val PREDICTIVE_BACK = "predictive_back"
+
     // 横移返回手势，默认启用；由 AppNavigation 持有状态实时生效，这里只作持久化
     const val SWIPE_DISMISS = "swipe_dismiss"
     const val HIDE_TASK_CARD = "hide_task_card"

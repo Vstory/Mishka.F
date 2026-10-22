@@ -33,7 +33,6 @@ import top.yukonga.mishka.platform.ProxyServiceStatus
 import top.yukonga.mishka.platform.ProxyState
 import top.yukonga.mishka.platform.StorageKeys
 import top.yukonga.mishka.platform.TunMode
-import top.yukonga.mishka.service.MishkaRootService.Companion.EXTRA_SUBMODE
 import top.yukonga.mishka.viewmodel.AppProxyMode
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger

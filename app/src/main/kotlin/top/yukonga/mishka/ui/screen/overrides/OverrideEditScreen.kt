@@ -75,9 +75,9 @@ fun OverrideEditScreen(
     var picked by remember { mutableStateOf<FilePickResult?>(null) }
     val isRemote = profile?.isRemote ?: (method == AddMethod.Remote)
     val hasChanges = profile == null || name != profile.name || format != profile.format ||
-        (profile.isRemote && url != profile.sourceLocation)
+            (profile.isRemote && url != profile.sourceLocation)
     val canSave = hasChanges && !state.isLoading && name.isNotBlank() &&
-        (profile != null || method != AddMethod.Local || picked != null)
+            (profile != null || method != AddMethod.Local || picked != null)
 
     val scrollBehavior = MiuixScrollBehavior()
     val backdrop = rememberBlurBackdrop()
@@ -230,6 +230,7 @@ fun OverrideEditScreen(
                                 method == AddMethod.Local -> picked?.let {
                                     viewModel.addLocal(name, it.fileName, format, it.content, onSaved)
                                 }
+
                                 else -> viewModel.addBlank(name, format, onSaved)
                             }
                         },
@@ -241,20 +242,24 @@ fun OverrideEditScreen(
                 }
 
                 item(key = "bottom_spacer") {
-                    Spacer(Modifier.height(24.dp).navigationBarsPadding())
+                    Spacer(Modifier
+                        .height(24.dp)
+                        .navigationBarsPadding())
                 }
             }
         }
     }
 }
 
-private val AddMethod.label: Int get() = when (this) {
-    AddMethod.Remote -> R.string.override_method_remote
-    AddMethod.Blank -> R.string.override_method_blank
-    AddMethod.Local -> R.string.override_method_local
-}
+private val AddMethod.label: Int
+    get() = when (this) {
+        AddMethod.Remote -> R.string.override_method_remote
+        AddMethod.Blank -> R.string.override_method_blank
+        AddMethod.Local -> R.string.override_method_local
+    }
 
-private val OverrideFormat.label: String @Composable get() = when (this) {
-    OverrideFormat.Yaml -> stringResource(R.string.override_format_yaml)
-    OverrideFormat.JavaScript -> stringResource(R.string.override_format_javascript)
-}
+private val OverrideFormat.label: String
+    @Composable get() = when (this) {
+        OverrideFormat.Yaml -> stringResource(R.string.override_format_yaml)
+        OverrideFormat.JavaScript -> stringResource(R.string.override_format_javascript)
+    }

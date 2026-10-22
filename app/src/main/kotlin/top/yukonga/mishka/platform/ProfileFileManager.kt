@@ -44,6 +44,7 @@ interface ProfileFileManager {
     fun listImportedFiles(uuid: String): List<String>
     fun readImportedFile(uuid: String, relativePath: String): String?
     fun writeImportedFile(uuid: String, relativePath: String, content: String)
+
     /**
      * 删除 imported/、pending/ 与 ROOT runtime/。
      * 会挂起等待沙箱锁，不阻塞调用线程。

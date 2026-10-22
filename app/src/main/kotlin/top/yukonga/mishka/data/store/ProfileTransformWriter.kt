@@ -33,5 +33,7 @@ class ProfileTransformWriter(
         return target.path
     }
 
-    companion object { const val RUNTIME_PATH = "profile.transform.json" }
+    companion object {
+        const val RUNTIME_PATH = "profile.transform.json"
+    }
 }

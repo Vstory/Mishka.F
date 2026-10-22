@@ -15,17 +15,14 @@ import kotlinx.collections.immutable.toPersistentMap
 import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import top.yukonga.mishka.data.database.SelectionDao
 import top.yukonga.mishka.data.database.SelectionEntity
 import top.yukonga.mishka.domain.repository.MihomoRepository
+import top.yukonga.mishka.domain.model.ProxyNode
 import top.yukonga.mishka.platform.PlatformStorage
 import top.yukonga.mishka.platform.StorageKeys
 import top.yukonga.mishka.util.describe
@@ -45,8 +42,8 @@ data class ProxyGroupUi(
     /** 对应 mihomo 的 `outboundgroup.SelectAble`；LoadBalance / Relay 不实现，PUT 返回 400 */
     val isSelectable: Boolean
         get() = isSelector ||
-            type.equals("URLTest", ignoreCase = true) ||
-            type.equals("Fallback", ignoreCase = true)
+                type.equals("URLTest", ignoreCase = true) ||
+                type.equals("Fallback", ignoreCase = true)
 
     /** 选中写 now；其余可选组写 fixed（now 仍是自动择优结果） */
     val isSelector: Boolean get() = type.equals("Selector", ignoreCase = true)
@@ -82,6 +79,11 @@ class ProxyViewModel(
     private val _singleColumn = MutableStateFlow(loadInitialSingleColumn())
     val singleColumn: StateFlow<Boolean> = _singleColumn.asStateFlow()
 
+    private val _showGroupIcons = MutableStateFlow(
+        storage?.getString(StorageKeys.PROXY_GROUP_SHOW_ICONS, "true") != "false"
+    )
+    val showGroupIcons: StateFlow<Boolean> = _showGroupIcons.asStateFlow()
+
     private var repository: MihomoRepository? = null
 
     // mihomo 重启切 client 时取消旧的 loadProxies 协程，防止其 HTTP 响应已读完但 UI 写回
@@ -110,6 +112,11 @@ class ProxyViewModel(
 
     private fun loadInitialSingleColumn(): Boolean =
         storage?.getString(StorageKeys.PROXY_NODE_SINGLE_COLUMN, "false") == "true"
+
+    fun updateShowGroupIcons(enabled: Boolean) {
+        _showGroupIcons.value = enabled
+        storage?.putString(StorageKeys.PROXY_GROUP_SHOW_ICONS, enabled.toString())
+    }
 
     fun setRepository(repo: MihomoRepository?) {
         if (repository === repo) return
@@ -188,21 +195,8 @@ class ProxyViewModel(
                         val nodeTypes = mutableMapOf<String, String>()
                         node.all.forEach { proxyName ->
                             val proxy = allProxies[proxyName]
-                            val lastDelay = proxy?.history?.lastOrNull()?.delay
-                            if (lastDelay != null && lastDelay > 0) {
-                                delays[proxyName] = lastDelay
-                            } else if (lastDelay == 0) {
-                                // delay=0 表示 healthcheck 超时/失败，映射为 -1 让 UI 显示"超时"
-                                delays[proxyName] = -1
-                            } else if (proxy != null && proxy.now.isNotEmpty()) {
-                                val nowProxy = allProxies[proxy.now]
-                                val nowDelay = nowProxy?.history?.lastOrNull()?.delay
-                                if (nowDelay != null && nowDelay > 0) {
-                                    delays[proxyName] = nowDelay
-                                } else if (nowDelay == 0) {
-                                    delays[proxyName] = -1
-                                }
-                            }
+                            val resolved = resolveDelay(proxyName, allProxies)
+                            if (resolved != null) delays[proxyName] = resolved
                             if (proxy != null && proxy.type.isNotEmpty()) {
                                 nodeTypes[proxyName] = proxy.type
                             }
@@ -278,49 +272,65 @@ class ProxyViewModel(
         }
     }
 
-    /**
-     * 逐节点而非 `/group/{name}/delay`：后者会先对非 Selector 组 `ForceSet("")`
-     * 解除固定（hub/route/groups.go）。两者都写全局 history.delay，结果等价
-     */
     fun testGroupDelay(group: String) {
         val repo = repository ?: return
         if (group in _uiState.value.testingGroups) return
         val groupUi = groupOf(group)
         val nodes = groupUi?.all ?: return
         if (nodes.isEmpty()) return
-        val groupTestUrl = groupUi.testUrl.takeIf { it.isNotEmpty() }
+        val groupTestUrl = groupUi.testUrl.takeIf { it.isNotEmpty() } ?: "http://www.gstatic.com/generate_204"
+        val currentFixed = groupUi.fixed.takeIf { it.isNotEmpty() && !groupUi.isSelector }
         _uiState.value = _uiState.value.copy(
             testingGroups = (_uiState.value.testingGroups + group).toPersistentSet(),
         )
 
         viewModelScope.launch {
             try {
-                // 限并发：上百节点齐发会互抢带宽，测出的延迟失真
-                val semaphore = Semaphore(GROUP_DELAY_CONCURRENCY)
-                coroutineScope {
-                    nodes.map { nodeName ->
-                        async {
-                            semaphore.withPermit {
-                                // 单节点失败是正常结果，不能让它终止整组
-                                val provider = nodeProviderMap[nodeName]
-                                if (provider != null) {
-                                    if (groupTestUrl != null) repo.getProviderProxyDelay(provider, nodeName, testUrl = groupTestUrl)
-                                    else repo.getProviderProxyDelay(provider, nodeName)
-                                } else {
-                                    if (groupTestUrl != null) repo.getProxyDelay(nodeName, testUrl = groupTestUrl)
-                                    else repo.getProxyDelay(nodeName)
-                                }
+                // 调内核 /group/{name}/delay 单次并发测完整组，防串行 HTTP 阻塞
+                val delayResult = repo.getGroupDelay(group, groupTestUrl, 5000)
+                if (repository !== repo) return@launch
+                val delayMap = delayResult.getOrNull() ?: emptyMap()
+
+                val updatedGroups = _uiState.value.groups.map { g ->
+                    if (g.name == group) {
+                        val newDelays = g.delays.toMutableMap()
+                        g.all.forEach { nodeName ->
+                            val d = delayMap[nodeName]
+                            if (d != null && d > 0) {
+                                newDelays[nodeName] = d
+                            } else if (delayResult.isSuccess) {
+                                // 未返回或 0 表示超时/失败
+                                newDelays[nodeName] = -1
                             }
                         }
-                    }.awaitAll()
+                        g.copy(delays = newDelays.toPersistentMap())
+                    } else {
+                        val affected = g.all.filter { it in delayMap }
+                        if (affected.isNotEmpty()) {
+                            val newDelays = g.delays.toMutableMap()
+                            affected.forEach { nodeName ->
+                                val d = delayMap[nodeName]
+                                if (d != null && d > 0) newDelays[nodeName] = d
+                            }
+                            g.copy(delays = newDelays.toPersistentMap())
+                        } else {
+                            g
+                        }
+                    }
+                }.toPersistentList()
+
+                _uiState.value = _uiState.value.copy(groups = updatedGroups)
+
+                // 非 Selector 组恢复固定的节点
+                if (currentFixed != null) {
+                    repo.selectProxy(group, currentFixed)
                 }
-                if (repository !== repo) return@launch
-                loadProxies()
             } finally {
-                // 正常结束、repo 切换、被取消都要摘标记，漏掉哪条路径该组就永久转圈
                 _uiState.value = _uiState.value.copy(
                     testingGroups = (_uiState.value.testingGroups - group).toPersistentSet(),
                 )
+                // 返回值不含子组名，重拉后才能同步父组延迟。
+                if (repository === repo) loadProxies()
             }
         }
     }
@@ -334,16 +344,27 @@ class ProxyViewModel(
 
         viewModelScope.launch {
             try {
-                // 延迟结果写入节点全局 history.delay，loadProxies 再从 history 读回并分发到
-                // 所有引用该节点的组，保证跨组延迟一致；provider 节点走 provider healthcheck 端点
                 val provider = nodeProviderMap[nodeName]
-                if (provider != null) {
+                val result = if (provider != null) {
                     repo.getProviderProxyDelay(provider, nodeName)
                 } else {
                     repo.getProxyDelay(nodeName)
                 }
                 if (repository !== repo) return@launch
-                loadProxies()
+                val delayValue = result.getOrNull()?.delay?.takeIf { it > 0 } ?: -1
+
+                // 单节点就地更新延迟，不全量重拉配置
+                val updatedGroups = _uiState.value.groups.map { group ->
+                    if (nodeName in group.all) {
+                        val newDelays = group.delays.toMutableMap()
+                        newDelays[nodeName] = delayValue
+                        group.copy(delays = newDelays.toPersistentMap())
+                    } else {
+                        group
+                    }
+                }.toPersistentList()
+
+                _uiState.value = _uiState.value.copy(groups = updatedGroups)
             } finally {
                 _uiState.value = _uiState.value.copy(
                     testingNodes = (_uiState.value.testingNodes - nodeName).toPersistentSet(),
@@ -400,11 +421,25 @@ class ProxyViewModel(
     }
 
     companion object {
-        private const val GROUP_DELAY_CONCURRENCY = 5
-
         const val GLOBAL_GROUP = "GLOBAL"
         const val MODE_GLOBAL = "global"
         const val MODE_DIRECT = "direct"
         private const val TAG = "ProxyViewModel"
+    }
+
+    /** 子组沿 now 取当前出口；步数上限防配置环。 */
+    private fun resolveDelay(name: String, allProxies: Map<String, ProxyNode>): Int? {
+        var current = name
+        var remaining = allProxies.size + 1
+        while (remaining-- > 0) {
+            val proxy = allProxies[current] ?: return null
+            if (proxy.now.isNotEmpty()) {
+                current = proxy.now
+                continue
+            }
+            val delay = proxy.history.lastOrNull()?.delay ?: return null
+            return if (delay > 0) delay else -1
+        }
+        return null
     }
 }

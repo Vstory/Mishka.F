@@ -201,8 +201,8 @@ private fun isYamlPath(path: String): Boolean =
 
 private fun isJavaScriptPath(path: String): Boolean =
     path.endsWith(".js", ignoreCase = true) ||
-        path.endsWith(".mjs", ignoreCase = true) ||
-        path.endsWith(".cjs", ignoreCase = true)
+            path.endsWith(".mjs", ignoreCase = true) ||
+            path.endsWith(".cjs", ignoreCase = true)
 
 // 仅校验 YAML（config.yaml / .yml / .yaml），其他文件直接写盘。返回 null 表示通过。
 private suspend fun saveWithValidation(

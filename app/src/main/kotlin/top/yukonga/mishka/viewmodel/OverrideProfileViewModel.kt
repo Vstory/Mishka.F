@@ -117,8 +117,13 @@ class OverrideProfileViewModel(
             onComplete()
         }
 
-    private suspend fun restartIfUsed(id: String) { if (repository.isUsedByCurrent(id)) restartCurrent() }
-    private fun restartCurrent() { subscriptions.getActiveId()?.let(serviceController::restartWhenReady) }
+    private suspend fun restartIfUsed(id: String) {
+        if (repository.isUsedByCurrent(id)) restartCurrent()
+    }
+
+    private fun restartCurrent() {
+        subscriptions.getActiveId()?.let(serviceController::restartWhenReady)
+    }
 
     private fun launchOperation(@StringRes errorKey: Int, block: suspend () -> Unit) {
         if (_uiState.value.isLoading) return

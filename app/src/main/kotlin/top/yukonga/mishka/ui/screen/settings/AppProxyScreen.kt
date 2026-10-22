@@ -69,6 +69,7 @@ import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
+import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -338,7 +339,7 @@ fun AppProxyScreen(
             }
         },
     ) { innerPadding ->
-        searchStatus.SearchBox {
+        val appList: @Composable () -> Unit = {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -396,11 +397,14 @@ fun AppProxyScreen(
                         }
                     } else {
                         item(key = "apps_title") {
+                            val selectedCount = remember(filteredApps, uiState.selectedPackages) {
+                                filteredApps.count { it.packageName in uiState.selectedPackages }
+                            }
                             SmallTitle(
                                 text = stringResource(
                                     R.string.app_proxy_app_list,
-                                    uiState.selectedPackages.size,
-                                    uiState.apps.size
+                                    selectedCount,
+                                    filteredApps.size
                                 )
                             )
                         }
@@ -426,6 +430,25 @@ fun AppProxyScreen(
                             .navigationBarsPadding()
                     )
                 }
+            }
+        }
+        searchStatus.SearchBox {
+            if (uiState.mode == AppProxyMode.AllowAll) {
+                appList()
+            } else {
+                PullToRefresh(
+                    isRefreshing = uiState.isRefreshing,
+                    onRefresh = viewModel::refreshApps,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = innerPadding.calculateTopPadding() + 6.dp),
+                    refreshTexts = listOf(
+                        stringResource(R.string.refresh_pulling),
+                        stringResource(R.string.refresh_release),
+                        stringResource(R.string.refresh_refreshing),
+                        stringResource(R.string.refresh_complete),
+                    ),
+                    content = appList,
+                )
             }
         }
     }

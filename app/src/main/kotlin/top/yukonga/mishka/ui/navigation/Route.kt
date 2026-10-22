@@ -1,7 +1,7 @@
 package top.yukonga.mishka.ui.navigation
 
-import top.yukonga.miuix.kmp.nav.core.NavKey
 import kotlinx.serialization.Serializable
+import top.yukonga.miuix.kmp.nav.core.NavKey
 
 /**
  * 二级页路由。back stack 靠 `Json.encodeToString<Route>` 多态编码整条栈持久化，

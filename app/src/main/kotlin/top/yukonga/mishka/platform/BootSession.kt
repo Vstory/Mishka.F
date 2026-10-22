@@ -2,7 +2,6 @@ package top.yukonga.mishka.platform
 
 import android.content.Context
 import android.provider.Settings
-import top.yukonga.mishka.platform.BootSession.mark
 
 /**
  * 判定「设备自上次启动代理以来是否重启过」。ROOT 模式的 mihomo 是独立 root 进程，设备重启会

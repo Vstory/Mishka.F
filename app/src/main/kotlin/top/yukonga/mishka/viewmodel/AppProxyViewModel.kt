@@ -38,6 +38,7 @@ data class AppProxyUiState(
     val searchQuery: String = "",
     val showSystemApps: Boolean = false,
     val isLoading: Boolean = true,
+    val isRefreshing: Boolean = false,
 )
 
 class AppProxyViewModel(
@@ -53,7 +54,7 @@ class AppProxyViewModel(
     private var initialMode: AppProxyMode = AppProxyMode.AllowAll
     private var initialPackages: Set<String> = persistentSetOf()
 
-    /** 排序锚点：进入页面时的初始勾选集合。整个会话保持不变，勾选不触发重排 */
+    /** 排序锚点：初始勾选集合，下拉刷新时才同步当前勾选，避免勾选时列表抖动。 */
     private val _sortAnchor = MutableStateFlow<Set<String>>(emptySet())
 
     private var appsLoadJob: Job? = null
@@ -108,13 +109,22 @@ class AppProxyViewModel(
         _uiState.value = _uiState.value.copy(mode = mode, selectedPackages = packages)
     }
 
-    /** 每进程只枚举一次；页面重新订阅（离开超过 stop timeout 后回来）不重复拉取。 */
+    /** 自动加载每进程只执行一次；手动刷新可重新枚举应用。 */
     private fun ensureAppsLoaded() {
         if (appsLoadJob != null) return
+        loadApps()
+    }
+
+    private fun loadApps(refresh: Boolean = false) {
         appsLoadJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
-            val apps = appListProvider.getInstalledApps()
-            _uiState.value = _uiState.value.copy(apps = apps, isLoading = false)
+            if (refresh) _uiState.value = _uiState.value.copy(isRefreshing = true)
+            try {
+                val apps = appListProvider.getInstalledApps()
+                if (refresh) _sortAnchor.value = _uiState.value.selectedPackages
+                _uiState.value = _uiState.value.copy(apps = apps)
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoading = false, isRefreshing = false)
+            }
         }
     }
 
@@ -169,6 +179,11 @@ class AppProxyViewModel(
 
     fun setShowSystemApps(show: Boolean) {
         _uiState.value = _uiState.value.copy(showSystemApps = show)
+    }
+
+    fun refreshApps() {
+        if (appsLoadJob?.isActive == true) return
+        loadApps(refresh = true)
     }
 
     fun exportPackages(): String {

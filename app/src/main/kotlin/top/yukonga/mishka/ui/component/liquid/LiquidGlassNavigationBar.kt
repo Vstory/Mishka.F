@@ -412,188 +412,188 @@ internal fun IosLiquidGlassNavigationBar(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterStart,
                 ) {
-                CompositionLocalProvider(LocalContentColor provides tabContentColor) {
-                    Row(
-                        modifier = Modifier
-                            .selectableGroup()
-                            .onSizeChanged { coords ->
-                                totalWidthPx = coords.width.toFloat()
-                                val contentWidthPx = totalWidthPx - with(density) { 8.dp.toPx() }
-                                tabWidthPx = (contentWidthPx / tabsCount).coerceAtLeast(0f)
-                            }
-                            .graphicsLayer { translationX = panelOffset }
-                            .dropShadow(
-                                shape = pillShape,
-                                shadow = Shadow(
-                                    radius = 10.dp,
-                                    color = Color.Black,
-                                    alpha = if (isDark) 0.2f else 0.1f,
-                                ),
-                            )
-                            .then(
-                                if (isBlurActive && backdrop != null) {
-                                    Modifier.drawBackdrop(
+                    CompositionLocalProvider(LocalContentColor provides tabContentColor) {
+                        Row(
+                            modifier = Modifier
+                                .selectableGroup()
+                                .onSizeChanged { coords ->
+                                    totalWidthPx = coords.width.toFloat()
+                                    val contentWidthPx = totalWidthPx - with(density) { 8.dp.toPx() }
+                                    tabWidthPx = (contentWidthPx / tabsCount).coerceAtLeast(0f)
+                                }
+                                .graphicsLayer { translationX = panelOffset }
+                                .dropShadow(
+                                    shape = pillShape,
+                                    shadow = Shadow(
+                                        radius = 10.dp,
+                                        color = Color.Black,
+                                        alpha = if (isDark) 0.2f else 0.1f,
+                                    ),
+                                )
+                                .then(
+                                    if (isBlurActive && backdrop != null) {
+                                        Modifier.drawBackdrop(
+                                            backdrop = backdrop,
+                                            shape = { pillShape },
+                                            effects = {
+                                                padding = maxOf(padding, 40.dp.toPx())
+                                                vibrancy()
+                                                blur(
+                                                    4.dp.toPx(),
+                                                    4.dp.toPx(),
+                                                )
+                                                lens(
+                                                    refractionHeight = 24.dp.toPx(),
+                                                    refractionAmount = 24.dp.toPx(),
+                                                )
+                                            },
+                                            highlight = {
+                                                gravityRotatedHighlight(iosIndicatorSpecular, gravityAngle.value, extraDegrees = -45f)
+                                                    .copy(alpha = 0.75f)
+                                            },
+                                            layerBlock = {
+                                                val width = size.width.coerceAtLeast(1f)
+                                                val s = lerp(1f, 1f + 16.dp.toPx() / width, dampedDrag.pressProgress)
+                                                scaleX = s
+                                                scaleY = s
+                                            },
+                                            onDrawSurface = { drawRect(containerColor) },
+                                        )
+                                    } else {
+                                        Modifier.background(containerColor, pillShape)
+                                    },
+                                )
+                                .then(
+                                    if (isBlurActive) {
+                                        interactiveHighlight.modifier.then(interactiveHighlight.gestureModifier)
+                                    } else Modifier
+                                )
+                                .then(dampedDrag.modifier)
+                                .height(containerHeight)
+                                .padding(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = tabsContent,
+                        )
+                    }
+
+                    if (isBlurActive && backdrop != null) {
+                        CompositionLocalProvider(
+                            LocalIosTabScale provides { lerp(1f, 1.2f, dampedDrag.pressProgress) },
+                            LocalContentColor provides accentColor,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .clearAndSetSemantics {}
+                                    .alpha(0f)
+                                    .layerBackdrop(tabsBackdrop)
+                                    .graphicsLayer { translationX = panelOffset }
+                                    .drawBackdrop(
                                         backdrop = backdrop,
                                         shape = { pillShape },
                                         effects = {
-                                            padding = maxOf(padding, 40.dp.toPx())
                                             vibrancy()
-                                            blur(
-                                                4.dp.toPx(),
-                                                4.dp.toPx(),
-                                            )
+                                            blur(4.dp.toPx(), 4.dp.toPx())
                                             lens(
                                                 refractionHeight = 24.dp.toPx(),
                                                 refractionAmount = 24.dp.toPx(),
                                             )
                                         },
-                                        highlight = {
-                                            gravityRotatedHighlight(iosIndicatorSpecular, gravityAngle.value, extraDegrees = -45f)
-                                                .copy(alpha = 0.75f)
-                                        },
-                                        layerBlock = {
-                                            val width = size.width.coerceAtLeast(1f)
-                                            val s = lerp(1f, 1f + 16.dp.toPx() / width, dampedDrag.pressProgress)
-                                            scaleX = s
-                                            scaleY = s
-                                        },
                                         onDrawSurface = { drawRect(containerColor) },
                                     )
-                                } else {
-                                    Modifier.background(containerColor, pillShape)
-                                },
+                                    .then(interactiveHighlight.modifier)
+                                    .height(indicatorHeight)
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                content = tabsContent,
                             )
-                            .then(
-                                if (isBlurActive) {
-                                    interactiveHighlight.modifier.then(interactiveHighlight.gestureModifier)
-                                } else Modifier
-                            )
-                            .then(dampedDrag.modifier)
-                            .height(containerHeight)
-                            .padding(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = tabsContent,
-                    )
-                }
-
-                if (isBlurActive && backdrop != null) {
-                    CompositionLocalProvider(
-                        LocalIosTabScale provides { lerp(1f, 1.2f, dampedDrag.pressProgress) },
-                        LocalContentColor provides accentColor,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .clearAndSetSemantics {}
-                                .alpha(0f)
-                                .layerBackdrop(tabsBackdrop)
-                                .graphicsLayer { translationX = panelOffset }
-                                .drawBackdrop(
-                                    backdrop = backdrop,
-                                    shape = { pillShape },
-                                    effects = {
-                                        vibrancy()
-                                        blur(4.dp.toPx(), 4.dp.toPx())
-                                        lens(
-                                            refractionHeight = 24.dp.toPx(),
-                                            refractionAmount = 24.dp.toPx(),
-                                        )
-                                    },
-                                    onDrawSurface = { drawRect(containerColor) },
-                                )
-                                .then(interactiveHighlight.modifier)
-                                .height(indicatorHeight)
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            content = tabsContent,
-                        )
+                        }
                     }
-                }
 
-                if (tabWidthPx > 0f) {
-                    val tabWidthDp = with(density) { tabWidthPx.toDp() }
-                    if (isBlurActive && combinedBackdrop != null) {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .graphicsLayer {
-                                    val singleTabWidth = tabWidthPx
-                                    val progressOffset = dampedDrag.value * singleTabWidth
-                                    translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
-                                }
-                                .drawBackdrop(
-                                    backdrop = combinedBackdrop,
-                                    shape = { pillShape },
-                                    effects = {
-                                        val progress = dampedDrag.pressProgress
-                                        lens(
-                                            refractionHeight = 10.dp.toPx() * progress,
-                                            refractionAmount = 14.dp.toPx() * progress,
-                                            depthEffect = true,
-                                            chromaticAberration = 0.5f,
+                    if (tabWidthPx > 0f) {
+                        val tabWidthDp = with(density) { tabWidthPx.toDp() }
+                        if (isBlurActive && combinedBackdrop != null) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 4.dp)
+                                    .graphicsLayer {
+                                        val singleTabWidth = tabWidthPx
+                                        val progressOffset = dampedDrag.value * singleTabWidth
+                                        translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
+                                    }
+                                    .drawBackdrop(
+                                        backdrop = combinedBackdrop,
+                                        shape = { pillShape },
+                                        effects = {
+                                            val progress = dampedDrag.pressProgress
+                                            lens(
+                                                refractionHeight = 10.dp.toPx() * progress,
+                                                refractionAmount = 14.dp.toPx() * progress,
+                                                depthEffect = true,
+                                                chromaticAberration = 0.5f,
+                                            )
+                                        },
+                                        highlight = {
+                                            gravityRotatedHighlight(iosIndicatorSpecular, gravityAngle.value, extraDegrees = 90f)
+                                                .copy(alpha = dampedDrag.pressProgress)
+                                        },
+                                        layerBlock = {
+                                            scaleX = dampedDrag.scaleX
+                                            scaleY = dampedDrag.scaleY
+                                            val v = dampedDrag.velocity / 10f
+                                            scaleX /= 1f - (v * 0.75f).coerceIn(-0.2f, 0.2f)
+                                            scaleY *= 1f - (v * 0.25f).coerceIn(-0.2f, 0.2f)
+                                        },
+                                        onDrawSurface = {
+                                            val progress = dampedDrag.pressProgress
+                                            drawRect(
+                                                color = if (!isDark) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f),
+                                                alpha = 1f - progress,
+                                            )
+                                            drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                                        },
+                                    )
+                                    .innerShadow(shape = pillShape) {
+                                        InnerShadow(
+                                            radius = 8.dp * dampedDrag.pressProgress,
+                                            color = Color.Black.copy(alpha = 0.15f),
+                                            alpha = dampedDrag.pressProgress,
                                         )
-                                    },
-                                    highlight = {
-                                        gravityRotatedHighlight(iosIndicatorSpecular, gravityAngle.value, extraDegrees = 90f)
-                                            .copy(alpha = dampedDrag.pressProgress)
-                                    },
-                                    layerBlock = {
-                                        scaleX = dampedDrag.scaleX
-                                        scaleY = dampedDrag.scaleY
-                                        val v = dampedDrag.velocity / 10f
-                                        scaleX /= 1f - (v * 0.75f).coerceIn(-0.2f, 0.2f)
-                                        scaleY *= 1f - (v * 0.25f).coerceIn(-0.2f, 0.2f)
-                                    },
-                                    onDrawSurface = {
-                                        val progress = dampedDrag.pressProgress
-                                        drawRect(
-                                            color = if (!isDark) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f),
-                                            alpha = 1f - progress,
-                                        )
-                                        drawRect(Color.Black.copy(alpha = 0.03f * progress))
-                                    },
-                                )
-                                .innerShadow(shape = pillShape) {
-                                    InnerShadow(
-                                        radius = 8.dp * dampedDrag.pressProgress,
-                                        color = Color.Black.copy(alpha = 0.15f),
-                                        alpha = dampedDrag.pressProgress,
+                                    }
+                                    .height(indicatorHeight)
+                                    .width(tabWidthDp),
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 4.dp)
+                                    .graphicsLayer {
+                                        val progressOffset = dampedDrag.value * tabWidthPx
+                                        translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
+                                    }
+                                    .clip(pillShape)
+                                    .background(accentColor.copy(alpha = 0.15f), pillShape)
+                                    .height(indicatorHeight)
+                                    .width(tabWidthDp),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                CompositionLocalProvider(LocalContentColor provides accentColor) {
+                                    Row(
+                                        modifier = Modifier
+                                            .clearAndSetSemantics {}
+                                            .wrapContentWidth(align = Alignment.Start, unbounded = true)
+                                            .requiredWidth(with(density) { (totalWidthPx - 8.dp.toPx()).toDp() })
+                                            .height(indicatorHeight)
+                                            .graphicsLayer {
+                                                val progressOffset = dampedDrag.value * tabWidthPx
+                                                translationX = if (isLtr) -progressOffset else progressOffset
+                                            },
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        content = tabsContent,
                                     )
                                 }
-                                .height(indicatorHeight)
-                                .width(tabWidthDp),
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .graphicsLayer {
-                                    val progressOffset = dampedDrag.value * tabWidthPx
-                                    translationX = if (isLtr) progressOffset + panelOffset else -progressOffset + panelOffset
-                                }
-                                .clip(pillShape)
-                                .background(accentColor.copy(alpha = 0.15f), pillShape)
-                                .height(indicatorHeight)
-                                .width(tabWidthDp),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            CompositionLocalProvider(LocalContentColor provides accentColor) {
-                                Row(
-                                    modifier = Modifier
-                                        .clearAndSetSemantics {}
-                                        .wrapContentWidth(align = Alignment.Start, unbounded = true)
-                                        .requiredWidth(with(density) { (totalWidthPx - 8.dp.toPx()).toDp() })
-                                        .height(indicatorHeight)
-                                        .graphicsLayer {
-                                            val progressOffset = dampedDrag.value * tabWidthPx
-                                            translationX = if (isLtr) -progressOffset else progressOffset
-                                        },
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    content = tabsContent,
-                                )
                             }
                         }
                     }
-                }
                 }
                 Box(
                     modifier = Modifier

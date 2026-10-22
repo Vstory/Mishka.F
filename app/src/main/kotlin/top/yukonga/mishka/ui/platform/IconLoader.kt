@@ -26,6 +26,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import top.yukonga.mishka.platform.ProxyServiceBridge
 import top.yukonga.mishka.platform.ProxyState
+import top.yukonga.mishka.ui.platform.IconLoader.FAILURE_RETRY_INTERVAL
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource

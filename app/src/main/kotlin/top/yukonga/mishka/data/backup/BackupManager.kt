@@ -10,9 +10,9 @@ import kotlinx.serialization.json.Json
 import top.yukonga.mishka.data.database.AppDatabase
 import top.yukonga.mishka.data.database.ImportedEntity
 import top.yukonga.mishka.data.database.PendingEntity
+import top.yukonga.mishka.data.database.SelectionEntity
 import top.yukonga.mishka.data.database.decodeOverrideIds
 import top.yukonga.mishka.data.database.encodeOverrideIds
-import top.yukonga.mishka.data.database.SelectionEntity
 import top.yukonga.mishka.data.repository.ProfileProcessor
 import top.yukonga.mishka.data.repository.SubscriptionRepositoryImpl
 import top.yukonga.mishka.domain.model.ProfileType

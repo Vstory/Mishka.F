@@ -25,7 +25,7 @@
   - **VPN** —— 无需 Root，基于系统 `VpnService`
   - **ROOT TUN** —— Root 自建 TUN，`auto-route` + 大包 GSO 聚合
   - **ROOT TPROXY** —— 内核态透明代理（iptables + fwmark），性能接近直连
-- **分应用代理** —— 白/黑名单，三模式各自走 VpnService / `include-package` / iptables uid-owner
+- **分应用代理** —— 白/黑名单，三模式各自走 VpnService / `include-package` / iptables uid-owner；非“允许全部应用”模式支持下拉刷新已安装应用列表，并按当前勾选项优先重排
 - **热点流量处置**（ROOT）—— 支持绕过代理或透明代理（TPROXY）两种模式
 - **系统 DNS 同步** —— 启动时初始化转发子进程；应用进程监听非 VPN 网络的 DNS 变化，同步更新 JNI 导入核心与运行时核心，并刷新直连、节点域名等解析缓存
 

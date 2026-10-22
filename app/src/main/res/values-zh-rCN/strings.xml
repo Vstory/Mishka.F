@@ -84,6 +84,10 @@
     <string name="common_save">保存</string>
     <string name="common_back">返回</string>
     <string name="common_refresh">刷新</string>
+    <string name="refresh_pulling">下拉刷新</string>
+    <string name="refresh_release">松开刷新</string>
+    <string name="refresh_refreshing">刷新中…</string>
+    <string name="refresh_complete">刷新完成</string>
     <string name="common_more">更多</string>
     <string name="common_close">关闭</string>
     <string name="common_delete">删除</string>
@@ -174,6 +178,7 @@
     <string name="proxy_mode_direct_hint">当前为直连模式，所有流量不经代理。此处的选择会被保存，切回规则模式后生效。</string>
     <string name="proxy_mode_global_hint">当前为全局模式，仅 GLOBAL 组决定出口。其他代理组的选择切回规则模式后生效。</string>
     <string name="proxy_single_column">单列显示</string>
+    <string name="proxy_show_group_icons">显示图标</string>
     <string name="proxy_timeout">超时</string>
     <string name="proxy_sort_title">排序</string>
     <string name="proxy_sort_default">默认</string>

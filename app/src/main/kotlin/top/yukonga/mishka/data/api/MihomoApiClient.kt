@@ -5,6 +5,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -15,6 +16,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLPath
@@ -91,6 +93,30 @@ class MihomoApiClient(
     suspend fun unfixProxy(group: String) {
         val response: HttpResponse = client.delete("$baseUrl/proxies/${pathSegment(group)}")
         ensureSuccess(response, "proxy group '$group'")
+    }
+
+    suspend fun getGroupDelay(
+        name: String,
+        testUrl: String = "http://www.gstatic.com/generate_204",
+        timeout: Int = 5000,
+    ): Map<String, Int> {
+        val response: HttpResponse = client.get("$baseUrl/group/${pathSegment(name)}/delay") {
+            url {
+                parameters.append("url", testUrl)
+                parameters.append("timeout", timeout.toString())
+            }
+            timeout {
+                requestTimeoutMillis = maxOf(30_000L, timeout * 2L + 10_000L)
+            }
+        }
+        return if (response.status == HttpStatusCode.OK) {
+            response.body()
+        } else if (response.status == HttpStatusCode.GatewayTimeout || response.status == HttpStatusCode.ServiceUnavailable) {
+            emptyMap()
+        } else {
+            ensureSuccess(response, "group delay '$name'")
+            emptyMap()
+        }
     }
 
     suspend fun getProxyDelay(name: String, testUrl: String = "http://www.gstatic.com/generate_204", timeout: Int = 5000): DelayResult =

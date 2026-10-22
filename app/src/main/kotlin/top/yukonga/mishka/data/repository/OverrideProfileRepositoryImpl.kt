@@ -197,7 +197,10 @@ class OverrideProfileRepositoryImpl(
             lastUpdatedAt = System.currentTimeMillis(),
         )
 
-    private fun requireName(name: String) { if (name.isBlank()) throw OverrideInputError.NameRequired() }
+    private fun requireName(name: String) {
+        if (name.isBlank()) throw OverrideInputError.NameRequired()
+    }
+
     private fun requireUrl(url: String) {
         val lower = url.trim().lowercase()
         if (!lower.startsWith("http://") && !lower.startsWith("https://")) throw OverrideInputError.InvalidUrl()

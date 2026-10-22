@@ -84,6 +84,10 @@
     <string name="common_save">儲存</string>
     <string name="common_back">返回</string>
     <string name="common_refresh">重新整理</string>
+    <string name="refresh_pulling">下拉重新整理</string>
+    <string name="refresh_release">放開重新整理</string>
+    <string name="refresh_refreshing">重新整理中…</string>
+    <string name="refresh_complete">重新整理完成</string>
     <string name="common_more">更多</string>
     <string name="common_close">關閉</string>
     <string name="common_delete">刪除</string>
@@ -174,6 +178,7 @@
     <string name="proxy_mode_direct_hint">目前為直連模式，所有流量皆不經過代理。此處的選擇會被儲存，切回規則模式後生效。</string>
     <string name="proxy_mode_global_hint">目前為全域模式，僅由 GLOBAL 群組決定出口。其他代理群組的選擇將在切回規則模式後生效。</string>
     <string name="proxy_single_column">單欄顯示</string>
+    <string name="proxy_show_group_icons">顯示圖示</string>
     <string name="proxy_timeout">逾時</string>
     <string name="proxy_sort_title">排序</string>
     <string name="proxy_sort_default">預設</string>

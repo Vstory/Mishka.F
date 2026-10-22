@@ -5,8 +5,6 @@ import io.ktor.client.engine.ProxyBuilder
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.http.Url
-import top.yukonga.mishka.data.api.RuleLatencyTester.Companion.Failed
-import top.yukonga.mishka.data.api.RuleLatencyTester.Companion.Unavailable
 import top.yukonga.mishka.data.repository.SubscriptionProxyResolver
 import kotlin.time.TimeSource
 
