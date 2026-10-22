@@ -20,7 +20,7 @@ name: Build · CI · Release
 # 任意分支 push 都出包（只出 release 变体），发进固定 tag 的**同一个滚动页**，
 # 产物按时间戳追加、页面永不新增。分支本来就是用来试的 ⇒ 每次提交都该能立刻拿到包。
 # 多分支并发共用这一页（不设并发锁）—— 页面只有一张表，每个包一行，不按分支分页。
-run-name: "Build · CI Release · ${{ github.ref_name }}"
+run-name: "Build · CI · Release · ${{ github.ref_name }}"
 
 on:
   push:
