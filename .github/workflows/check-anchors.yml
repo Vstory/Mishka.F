@@ -1,0 +1,45 @@
+# 上游锚点巡检：上游改了补丁依赖的字面量就报警，不等下一次构建才发现。
+#   手法是「上游纯源码 + fork 的改写脚本」—— 脚本每条锚点都断言命中数，失配即 exit 非 0，
+#   所以这里不需要编译，几秒钟就能给出结论。
+#   与合并时的人工 dry-run 是两回事：这里盯上游，那边校验自己合并后的树。
+name: Check · Upstream · Anchors
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-anchors
+  cancel-in-progress: true
+
+jobs:
+  anchors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upstream
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/YuKongA/Mishka.git
+          git fetch --no-tags --depth=1 upstream main
+          echo "upstream: \`$(git rev-parse --short FETCH_HEAD)\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # 整体替换而不是逐个覆盖：上游若删改文件，残留的 fork 旧文件会让锚点「假装命中」
+      - name: Replace fork sources with upstream's
+        run: |
+          set -euo pipefail
+          rm -rf app/src app/build.gradle.kts build-logic
+          git checkout FETCH_HEAD -- app/src app/build.gradle.kts build-logic
+
+      - name: Verify fork identity anchors
+        run: |
+          set -euo pipefail
+          python3 scripts/ci-fork-identity.py \
+            --app-id top.yukonga.mishka.fork \
+            --label Mishka.F \
+            --dry-run
