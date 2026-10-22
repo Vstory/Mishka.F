@@ -67,7 +67,7 @@ env:
   # 滚动页：固定 tag + 页面标题 + 保留组数
   CI_TAG: ci
   CI_TITLE: CI Build
-  KEEP_GROUPS: '6'
+  KEEP_GROUPS: '1'
   # 页面刷新器（项目内副本；母版：知识库 100_System/templates/refresh_ci_page.sh）
   REFRESH_SCRIPT: scripts/ci-refresh-page.sh
   # 构建环境（Go 版本由 core 的 go.mod 决定，见 Set up Go）
