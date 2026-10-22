@@ -55,12 +55,8 @@ env:
   #   改 label 一处即全变。名字进文件名与下载 URL ⇒ label 只允许 A-Za-z0-9._-（中文名与括号在此
   #   会变成 URL 不友好字符），ci-fork-identity.py 对 --label 有断言。
   # 版本号来源文件：Mishka 的 versionName 是 build-logic 里的常量（sed 取第一处 VERSION_NAME），
-  # versionCode = 下面的基数 + 本次运行序号（本地构建没这个属性时仍用 git 提交数）⇒ 见 Resolve APK name 步骤
+  # versionCode 由构建时间戳生成（本地构建没这个属性时仍用 git 提交数）⇒ 见 Resolve APK name 步骤
   VERSION_FILE: build-logic/src/main/kotlin/ProjectConfig.kt
-  # 基数：改用单调的运行序号后必须从高于历史上所有提交数的值起步，否则第一次改用又是一次降级，
-  #   装机仍要强制安装（提交数会被 squash 合并、分支切换拉低，所以不能拿它当 versionCode）
-  #   5000 = 上游提交数（244）留余量：上游约 446 提交/年 ⇒ 十年内追不上；再大只是让包名更长
-  CI_VERSION_CODE_BASE: '5000'
   # 滚动页：固定 tag + 页面标题 + 保留组数
   CI_TAG: ci
   CI_TITLE: CI Build
@@ -231,18 +227,18 @@ jobs:
         run: |
           set -euo pipefail
           VER="$(sed -nE 's/^[[:space:]]*const val VERSION_NAME = "([^"]+)".*/\1/p' "$VERSION_FILE" | head -1)"
-          # versionCode 取「基数 + 运行序号」而非提交数：提交数在 squash 合并、切分支后会倒退，装机被判
-          # 成降级（要强制安装）。运行序号同一次 run 恒定 ⇒ 这里算出的值与 Gradle 侧、下面的 versionCode
-          # 断言天然同源
-          CODE="$(( CI_VERSION_CODE_BASE + GITHUB_RUN_NUMBER ))"
-          # 运行序号涨到上限得几万年（每天 20 次 ≈ 29 万年），但**基数是可以被人改大的** ⇒ 卡一道：
-          #   2100000000 是 Play 的硬上限，超过它连构建门禁都过不去（侧载虽只受 int 上限约束，也别越）
+          # versionCode = Unix 时间戳（分钟）。两个更自然的来源都会倒退：提交数在 squash 合并、
+          # 切分支后变少；GITHUB_RUN_NUMBER 按 workflow 文件独立计数，重命名/拆分即从 1 重计
+          # —— 本仓库 build-ci.yml → build-ci-release.yml 改名后 versionCode 从 5047 掉到 5004，
+          # 装机被判成降级。时间戳对改名、切分支、换仓库都单调。
+          CODE="$(( $(date +%s) / 60 ))"
+          # 2100000000 是 Play 的硬上限；分钟级时间戳能用四千年，这道只是护栏
           if [ "$CODE" -gt 2100000000 ]; then
-            echo "::error::versionCode=$CODE 超过 2100000000 —— 查 CI_VERSION_CODE_BASE 是不是被改大了"
+            echo "::error::versionCode=$CODE 超过 2100000000"
             exit 1
           fi
           if [ -z "$VER" ] || [ -z "$CODE" ]; then
-            echo "::error::读不到 versionName（$VERSION_FILE）/ versionCode（$CI_VERSION_CODE_BASE + $GITHUB_RUN_NUMBER）"
+            echo "::error::读不到 versionName（$VERSION_FILE）/ versionCode（构建时间戳）"
             exit 1
           fi
           # 版本名可能带空格（如 "2.2.0 Dev 9"），而文件名不允许空格 —— 去掉全部空白

@@ -40,7 +40,7 @@ room3 {
 val supportedAbis = listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 val gitVersionCode = getGitVersionCode()
 
-// CI 渠道（build-ci.yml）传 `-PciVersionCode=<基数+运行序号>`：提交数当 versionCode 会在 squash 合并、
+// CI 渠道（build-ci-release.yml）传 `-PciVersionCode=<构建时间戳>`：提交数当 versionCode 会在 squash 合并、
 // 切分支之后倒退，装机时被系统判成降级（要强制安装）。本地构建不传该属性，仍用提交数。
 val effectiveVersionCode = providers.gradleProperty("ciVersionCode").orNull?.trim()?.toIntOrNull()
     ?: gitVersionCode
