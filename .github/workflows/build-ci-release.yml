@@ -1,6 +1,6 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# CI 滚动发布：任意分支 push 即出包，发进固定 tag 的同一个滚动页。
-#   母版：知识库 100_System/templates/build-ci-release.workflow.yml（规程：GitHub域/CI滚动发布页流程.md）
+# CI 构建发布：任意分支 push 即出包，每次构建发成一个**独立 tag 的预发布页**。
+#   （Tag 形如 v1.0.0-r261022.1947.ad51dd7d = 版本-r年月日.时分.短号，与 Kelivo.F / aria2.F 同一口径。）
 #   ⚠️ 本项目（Mishka = mihomo GUI，**非 LSPosed 模块**）对母版有五处裁剪，同步母版更新时注意保留：
 #     ① 构建环境：多了 Go 工具链 + 子模块（mihomo / scripta）+ 先跑 downloadGeoFiles
 #     ② 版本号解析：versionName 在 build-logic 常量里、versionCode 由 CI 运行序号生成（不是 versionName= 字面量）
@@ -13,7 +13,7 @@
 #        安装、甚至同时开 root 模式，便于对照同一版本），构建前就地改写工作区，仓库源码保持与
 #        上游逐字一致 —— 见「Apply fork identity」步骤与 scripts/ci-fork-identity.py
 #     ⑥ 产物名前缀：**不设母版的 PREFIX 常量**，直接用 FORK_LABEL（fork 显示名）—— 前缀与身份
-#        改写、门禁同源，改 label 一处即全变（见 Resolve APK name / Upload artifact / Refresh）
+#        改写、门禁同源，改 label 一处即全变（见 Resolve APK name / Upload artifact）
 #     ⑦ action 引用：全部钉完整 SHA，规则见下方「action 引用」块（母版同名块与之对齐）
 # ══════════════════════════════════════════════════════════════════════════════
 # ── action 引用（规则：工程域/脚本编写规则流程.md §CI 工作流）──
@@ -24,9 +24,8 @@
 # ══════════════════════════════════════════════════════════════════════════════
 name: Build · CI · Release
 
-# 任意分支 push 都出包（只出 release 变体），发进固定 tag 的**同一个滚动页**，
-# 产物按时间戳追加、页面永不新增。分支本来就是用来试的 ⇒ 每次提交都该能立刻拿到包。
-# 多分支并发共用这一页（不设并发锁）—— 页面只有一张表，每个包一行，不按分支分页。
+# 任意分支 push 都出包（只出 release 变体），每次构建一个新 tag 的预发布页。
+# 分支本来就是用来试的 ⇒ 每次提交都该能立刻拿到包、且能按下标回看是哪次构建的产物。
 run-name: "Build · CI · Release · ${{ github.ref_name }}"
 
 on:
@@ -50,8 +49,7 @@ on:
 
 # 并发：**不设并发锁** —— 每次 push 都独立出包，任意分支、任意次数都同时构建（要的是
 #   「推了就有包」；排队等前一次跑完、或同分支新推取消旧跑，都会让人拿不到自己那次的产物）。
-# 页面写入的并发安全因此不靠串行，改由三件事共同保证（见 Publish / Refresh 两步）：
-#   幂等创建 + 资产名天然唯一 + 正文全量重建。任何交错都收敛到同一稳态（页面 = 最新 N 组）。
+# 每个 run 写自己那个 tag 的页面 ⇒ 无共享可变状态，交错无需协调。
 
 permissions:
   contents: write   # 发布 Release 需要写权限
@@ -64,12 +62,6 @@ env:
   # 版本号来源文件：Mishka 的 versionName 是 build-logic 里的常量（sed 取第一处 VERSION_NAME），
   # versionCode 由构建时间戳生成（本地构建没这个属性时仍用 git 提交数）⇒ 见 Resolve APK name 步骤
   VERSION_FILE: build-logic/src/main/kotlin/ProjectConfig.kt
-  # 滚动页：固定 tag + 页面标题 + 保留组数
-  CI_TAG: ci
-  CI_TITLE: CI Build
-  KEEP_GROUPS: '1'
-  # 页面刷新器（项目内副本；母版：知识库 100_System/templates/refresh_ci_page.sh）
-  REFRESH_SCRIPT: scripts/ci-refresh-page.sh
   # 构建环境（Go 版本由 core 的 go.mod 决定，见 Set up Go）
   JAVA_VERSION: '21'
   # compileSdk 37 + minorApiLevel 2 ⇒ 平台包名必须带 minor（AGP 按这个名字去找目录）
@@ -261,18 +253,21 @@ jobs:
             *) echo "::error::非法变体：${WANT}"; exit 1 ;;
           esac
 
+          # 年份压成两位：20261022-1947 → 261022-1947。发布页按 tag 名排序（同一天的提交时间
+          #   分不出先后），故 STAMP 拆成 26yymmdd.hhmm 两段，字符串降序即时间序。
+          STAMP="${TS:2:6}-${TS##*-}"
           {
-            echo "tag=${CI_TAG}"
-            echo "name=${CI_TITLE}"
+            echo "tag=v${VER}-r${STAMP//-/.}.${SHORT}"
+            echo "name=v${VER}-r${STAMP//-/.}.${SHORT}"
             echo "prerelease=true"
             echo "make_latest=false"
             echo "variants=${VLIST}"
             echo "variant_tag=$(printf '%s' "$VLIST" | tr ' ' '-')"
           } >> "$GITHUB_OUTPUT"
-          for kv in "VER=$VER" "CODE=$CODE" "VARIANT_LIST=$VLIST" "SHORT=$SHORT"; do echo "${kv}" >> "$GITHUB_ENV"; done
+          for kv in "VER=$VER" "CODE=$CODE" "VARIANT_LIST=$VLIST" "SHORT=$SHORT" "STAMP=$STAMP"; do echo "${kv}" >> "$GITHUB_ENV"; done
 
           for v in $VLIST; do
-            N="${FORK_LABEL}_${VER}.${CODE}_${TS}_ci-${v}_${SHORT}.apk"
+            N="${FORK_LABEL}_${VER}.${CODE}_${STAMP}_ci-${v}_${SHORT}.apk"
             echo "APKNAME_$(printf '%s' "$v" | tr '[:lower:]' '[:upper:]')=${N}" >> "$GITHUB_ENV"
             echo "产物名（${v}）：${N}"
           done
@@ -331,7 +326,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          # 上游开了 splits.abi，一个变体出 4 个包；滚动页每次构建只留一行，4 个包会把页面冲散。
+          # 上游开了 splits.abi，一个变体出 4 个包；发布页一个变体只该有一份资产，收窄到 arm64-v8a。
           #   就地收窄 —— 只改工作区、不提交，仓库源码保持与上游逐字一致。
           #   splits 的 include 与 buildMihomoTasks 共用 supportedAbis，改这一行两处同时生效；
           #   只改 include 的话 preBuild 仍 dependsOn 全部 4 个 Go 编译任务，白编 3 份 .so。
@@ -375,8 +370,7 @@ jobs:
           done
 
           # 命名自检（拿**实际产出的文件名**校验，不只信规则自洽）
-          # ⚠️ 与 refresh_ci_page.sh 的 NAME_RE 同源，改命名规则必须两处同改
-          RE='^[A-Za-z0-9._-]+_[0-9]{8}-[0-9]{4}_ci-(debug|release)_[0-9a-f]{8}\.apk$'
+          RE='^[A-Za-z0-9._-]+_[0-9]{6}-[0-9]{4}_ci-(debug|release)_[0-9a-f]{8}\.apk$'
           shopt -s nullglob
           apks=(dist/*.apk)
           want=$(wc -w <<< "$VARIANT_LIST")
@@ -525,34 +519,44 @@ jobs:
             echo "SIGN_SCHEMES=${SCHEMES// /+}" >> "$GITHUB_ENV"
           done
 
-      # 发布到固定 tag 的**同一页**。无并发锁下的写入安全靠三点：
-      #   ① 幂等创建：先查后建，撞上 422（另一运行刚建好）就重查 —— 不再有「同时创建」的竞态；
-      #   ② 资产名含 时间戳 + 短 SHA ⇒ 天然唯一，并发上传互不覆盖；--clobber 让重跑覆盖自己；
-      #   ③ 正文**不由本步写**（见 Refresh），故不存在「正文互相覆盖」。
-      # ⚠️ **不要给 asset 写 label**：GitHub 在 Release 页面用 label **顶替文件名显示**，打了
-      #    label 的包会整行变成 label，看着就像「产物名不对」。
-      - name: Publish to ci release
+      # 每次构建发一个独立 tag 的预发布页：同 tag 重跑走 edit + clobber 覆盖。
+      # ⚠️ **不要给 asset 写 label**：GitHub 在 Release 页面用 label **顶替文件名显示**，
+      #    打了 label 的包会整行变成 label，看着就像「产物名不对」。
+      - name: Publish to release
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_TAG: ${{ steps.target.outputs.tag }}
-          REL_NAME: ${{ steps.target.outputs.name }}
           REPO: ${{ github.repository }}
+          COMMIT: ${{ steps.info.outputs.commit }}
         run: |
           set -euo pipefail
-
-          # 页面不存在则建（正文是占位，真正的正文由 Refresh 重建）
-          : > /tmp/empty-notes.md
-          for i in 1 2 3 4 5; do
-            gh release view "$TARGET_TAG" >/dev/null 2>&1 && break
-            gh release create "$TARGET_TAG" \
-              --title "$REL_NAME" --prerelease --latest=false \
-              --notes-file /tmp/empty-notes.md >/dev/null 2>&1 || true
+          NOTES="$(
+            echo "构建提交 [\`${SHORT}\`](https://github.com/${REPO}/commit/${COMMIT})　·　版本 ${VER}（versionCode ${CODE}）　·　变体 ${VARIANT_LIST}"
+            echo
+            echo "- 单 ABI \`${EXPECT_ABI}\`（abi splits，非通用包）：装包前确认设备架构；mihomo 核心 \`libmihomo.so\` 由 CI 现编（Go + NDK），不随仓库分发。"
+            echo "- 包名 \`${EXPECT_PACKAGE}\` / 显示名 ${FORK_LABEL}：可与上游原版并存安装、互不影响数据目录；root 模式的 TUN 设备名与 iptables 规则名也已错开，两个包可同时开启。"
+            echo "- 各包共用同一把固定钥（v2 + v3 签名），debug 与 release 可互相覆盖安装。"
+            echo "- debug 包调试日志最全（由 \`BuildConfig.DEBUG\` 在编译期决定），排障优先用它；release 包与正式版同构建类型（R8 已裁剪），可用来验证 minify/keep 规则。"
+          )"
+          if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
+            echo "tag $TARGET_TAG 已存在 —— 按重跑处理"
+            gh release edit "$TARGET_TAG" --notes "$NOTES" --prerelease --latest=false
+          else
+            jq -n --arg t "$TARGET_TAG" --arg b "$NOTES" --arg c "$COMMIT" \
+              '{tag_name:$t, name:$t, target_commitish:$c, body:$b, prerelease:true}' \
+            | gh api -X POST "/repos/${REPO}/releases" --input -
+          fi
+          # 资产按上传顺序展示：release 排 debug 前面。
+          APKS=()
+          for v in release debug; do
+            f=$(ls dist/*ci-${v}*.apk 2>/dev/null | head -1 || true)
+            [ -n "$f" ] && APKS+=("$f")
           done
-          gh release view "$TARGET_TAG" >/dev/null 2>&1 \
-            || { echo "::error::$TARGET_TAG 页不存在且创建失败"; exit 1; }
-
-          gh release upload "$TARGET_TAG" dist/*.apk --clobber >/dev/null
-          echo "已上传：$(ls dist/*.apk | tr '\n' ' ')"
+          for i in "${!APKS[@]}"; do
+            [ "$i" -gt 0 ] && sleep 2
+            gh release upload "$TARGET_TAG" "${APKS[$i]}" --clobber
+          done
+          echo "已发布：https://github.com/${REPO}/releases/tag/${TARGET_TAG}"
 
           # 清历史遗留 label（曾一度打过，会把文件名顶掉）：只挑 label 非空的动手，
           #   正常状态下零 PATCH。幂等，并发重复清同一份无害。
@@ -578,26 +582,3 @@ jobs:
       # 正文为什么**全量重建**而不是在旧正文上追加：重建的输入是页面上真实存在的 asset 列表
       #   （权威、各 run 共享），并发交错下任何一次运行的产出都是「当时可见的完整状态」，最终
       #   收敛；追加式则会在「两个 run 同时读到同一份旧正文」时各写各的、丢掉对方那一行。
-      - name: Refresh ci page body + cleanup
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          SERVER: ${{ github.server_url }}
-          # 刷新器只拿它写脚注（「前缀 = …」），是 env.PREFIX 那份常量的替代来源
-          PREFIX: ${{ env.FORK_LABEL }}
-        run: |
-          set -euo pipefail
-          chmod +x "$REFRESH_SCRIPT"
-          # 富脚注由 workflow 拼（页面语义因项目而异）；脚本自带的部分见其 FOOTER_EXTRA 说明。
-          FOOTER_EXTRA="$(
-            echo "- 各包共用同一把固定钥（${SIGN_SCHEMES:-未读取到}），可互相覆盖安装。"
-            echo "- debug 包调试日志最全（由 \`BuildConfig.DEBUG\` 在编译期决定），排障优先用它；release 包与正式版同构建类型（R8 已裁剪），可用来验证 minify/keep 规则。"
-            echo "- 产物为单 ABI \`${EXPECT_ABI}\`（abi splits，非通用包）：装包前确认设备架构；mihomo 核心 \`libmihomo.so\` 由 CI 现编（Go + NDK），不随仓库分发。"
-            echo "- 包名/显示名是 fork 的（\`${EXPECT_PACKAGE}\` / ${FORK_LABEL}）：可与上游原版并存安装、互不影响数据目录；root 模式的 TUN 设备名与 iptables 规则名也已错开，两个包可同时开启。"
-          )" \
-          "$REFRESH_SCRIPT"
-# 收尾提示（不上传到页面，只写在这里供新项目参考）：
-#   · 首次接入后手动 dispatch 一次（variant=both），确认页面出两行、资产各一份。
-#   · 页面列集与列序改 COLUMNS（默认 time,version,commit,variant,size,download）。
-#   · 保留组数改 KEEP_GROUPS；改小会让旧包在下次运行时被清理。
