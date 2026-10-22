@@ -18,9 +18,10 @@ concurrency:
 
 jobs:
   anchors:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      # 与 build-ci-release.yml 同版本（钉 SHA）
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Fetch upstream
         run: |
