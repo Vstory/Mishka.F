@@ -73,6 +73,15 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             f'<string name="app_name" translatable="false">{label}</string>',
             1,
         ),
+        # 关于页「开放源代码许可」首位放本 fork —— 源码保持与上游逐字一致，条目只在构建时注入
+        (
+            f"{KOTLIN_DIR}/ui/screen/settings/AboutScreen.kt",
+            '"Mishka" to "https://github.com/YuKongA/Mishka",',
+            f'"{label}" to "https://github.com/Vstory/Mishka.F",\n'
+            + " " * 36
+            + '"Mishka" to "https://github.com/YuKongA/Mishka",',
+            1,
+        ),
         # Gradle 侧原始产物名（app/build/outputs/.../Mishka.F-v1.0.0(225)-arm64-v8a-release.apk）：
         #   CI 发布名由 workflow 单独拼，这里只管构建日志与本地产物目录里露出的名字 —— 留 `Mishka`
         #   会让人以为编的是上游包。APP_NAME 全仓仅此一处被引用（app/build.gradle.kts 的 archivesName）。
