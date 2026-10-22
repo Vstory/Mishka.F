@@ -153,8 +153,23 @@ class MishkaTunService : VpnService() {
                 storage.putString(StorageKeys.ROOT_ACTIVE_SUBSCRIPTION_ID, "")
             }
 
-            // 加载用户 override（后续 VpnService.Builder 和 mihomo 启动共用同一份）
+            // 加载用户 override 与运行时变换快照（后续 VpnService.Builder 和 mihomo 启动共用同一份）
             val userOverride = overrideStore.load()
+            val viaProxy = storage.getString(StorageKeys.SUBSCRIPTION_UPDATE_VIA_PROXY, "true") == "true"
+            val transformPlan = try {
+                prepareRuntimeTransform(this@MishkaTunService, subscriptionId, subscriptionRepository, transformWriter)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to prepare subscription transform", e)
+                ProxyServiceBridge.updateState(
+                    ProxyServiceStatus(
+                        ProxyState.Error,
+                        errorMessage = getString(R.string.error_generic_start_failed, e.message ?: e.javaClass.simpleName),
+                        tunMode = TunMode.Vpn,
+                    )
+                )
+                stopSelf()
+                return@launch
+            }
 
             // 1. 建立 VPN 接口，获取 fd
             val fd = try {
@@ -241,20 +256,17 @@ class MishkaTunService : VpnService() {
                     // 伪装为非计量网络，否则 Google Play 等应用在蜂窝下拒绝走 VPN
                     setMetered(false)
 
-                    val systemProxy = storage.getString(StorageKeys.VPN_SYSTEM_PROXY, "true") == "true"
+                    val systemProxy = storage.getString(StorageKeys.VPN_SYSTEM_PROXY, "true") != "false"
                     if (systemProxy) {
-                        val port = userOverride.mixedPort ?: 7890
+                        val port = userOverride.mixedPort
+                            ?: transformPlan.mixedPort
+                            ?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else 7890
+                        val localExclusions = if (bypassPrivate) HTTP_PROXY_LOCAL_LIST else emptyList()
                         setHttpProxy(
                             android.net.ProxyInfo.buildDirectProxy(
                                 "127.0.0.1",
                                 port,
-                                listOf(
-                                    "localhost", "*.local", "127.*", "10.*", "172.16.*",
-                                    "172.17.*", "172.18.*", "172.19.*", "172.20.*",
-                                    "172.21.*", "172.22.*", "172.23.*", "172.24.*",
-                                    "172.25.*", "172.26.*", "172.27.*", "172.28.*",
-                                    "172.29.*", "172.30.*", "172.31.*", "192.168.*"
-                                ),
+                                HTTP_PROXY_BLACK_LIST + localExclusions,
                             )
                         )
                     }
@@ -309,22 +321,6 @@ class MishkaTunService : VpnService() {
             // secret / extCtl 走 CLI flag 不进 JSON
             val secret = ConfigGenerator.resolveSecret(this@MishkaTunService, userOverride, subscriptionId)
             val extCtl = userOverride.resolveExternalController()
-            val viaProxy = storage.getString(StorageKeys.SUBSCRIPTION_UPDATE_VIA_PROXY, "true") == "true"
-            val transformPlan = try {
-                prepareRuntimeTransform(this@MishkaTunService, subscriptionId, subscriptionRepository, transformWriter)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to prepare subscription transform", e)
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(
-                        ProxyState.Error,
-                        errorMessage = getString(R.string.error_generic_start_failed, e.message ?: e.javaClass.simpleName),
-                        tunMode = TunMode.Vpn,
-                    )
-                )
-                closeTunFd()
-                stopSelf()
-                return@launch
-            }
             val overrideFile = RuntimeOverrideBuilder.buildAndWriteForRun(
                 context = this@MishkaTunService,
                 userOverride = userOverride,
@@ -503,5 +499,18 @@ class MishkaTunService : VpnService() {
         private const val TUN_SUBNET_PREFIX6 = 126
         private const val TUN_DNS = "198.18.0.2"
         private const val TUN_DNS6 = "fdfe:dcba:9876::2"
+
+        private val HTTP_PROXY_LOCAL_LIST = listOf(
+            "localhost", "*.local", "127.*", "10.*", "172.16.*",
+            "172.17.*", "172.18.*", "172.19.*", "172.20.*",
+            "172.21.*", "172.22.*", "172.23.*", "172.24.*",
+            "172.25.*", "172.26.*", "172.27.*", "172.28.*",
+            "172.29.*", "172.30.*", "172.31.*", "192.168.*",
+        )
+
+        private val HTTP_PROXY_BLACK_LIST = listOf(
+            "*zhihu.com", "*zhimg.com", "*jd.com", "*360buyimg.com",
+            "100ime-iat-api.xfyun.cn",
+        )
     }
 }
