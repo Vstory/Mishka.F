@@ -105,7 +105,7 @@ jobs:
       GIT_CONFIG_KEY_0: init.defaultBranch
       GIT_CONFIG_VALUE_0: main
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # versionCode 已改由 CI 运行序号生成、不依赖历史；fetch-depth: 0 保留作保险 —— 浅克隆会让
           # 仍读 git 历史的步骤静默出错
@@ -154,7 +154,7 @@ jobs:
           python3 "$SCRIPT" ${STR_STRICT:+--strict} "${CALL_ARGS[@]}" .
 
       - name: Set up JDK
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
@@ -163,7 +163,7 @@ jobs:
       #   go.sum 不在仓库根，缓存键默认会去找根目录的 go.sum ⇒ 不指到实际编译的模块上就是每次
       #   miss、全量重下 mihomo 的依赖树（Go 与 NDK 工具链的版本由 go.mod / AGP 决定，不额外钉）。
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: app/src/main/native/mishka_core/go.mod
           cache-dependency-path: app/src/main/native/mishka_core/go.sum
@@ -196,7 +196,7 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
 
       - name: Gradle cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.gradle/caches
@@ -561,7 +561,7 @@ jobs:
       # ⚠️ artifact 名必须带 run_number：upload-artifact 拒绝同名 artifact（不是覆盖），而
       #    「同一 commit、同一分钟内重复触发」会让 ts 与短号都相同 ⇒ 直接失败。
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.FORK_LABEL }}-${{ steps.target.outputs.variant_tag }}-${{ steps.info.outputs.ts }}-${{ steps.info.outputs.short }}-${{ github.run_number }}
           path: dist/*.apk
