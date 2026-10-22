@@ -14,6 +14,17 @@
 #        上游逐字一致 —— 见「Apply fork identity」步骤与 scripts/ci-fork-identity.py
 #     ⑥ 产物名前缀：**不设母版的 PREFIX 常量**，直接用 FORK_LABEL（fork 显示名）—— 前缀与身份
 #        改写、门禁同源，改 label 一处即全变（见 Resolve APK name / Upload artifact / Refresh）
+#     ⑦ action 引用：全部钉完整 SHA，规则见下方「action 引用规则」块（母版同名块与之对齐）
+# ══════════════════════════════════════════════════════════════════════════════
+# ── action 引用规则（改本文件时必须遵守）──
+#   uses 一律钉**完整 40 位 commit SHA**，禁止 @vN / @main 之类浮动引用 —— tag 可被重指到
+#   伪造提交（2026-05 actions-cool/* 事件：全部 53 个 tag 指向投毒 commit，只有钉死 SHA 的
+#   仓库未受影响）。行尾保留 `# vX.Y.Z` 注释供人读，否则无从判断钉的是哪版。
+#   版本必须是**当前最新**，且每次升级都要联网核对两件事：① 该 tag 现在指向的 SHA 与待钉的
+#   是否一致（一致才说明没漏掉新补丁）；② 近半年有无该 action 的安全公告 / 投毒事件。
+#   **构建绿不等于安全**：跑通只证明 API 没变，供应链风险要单独核实。
+#   当前定版：checkout v7.0.1 / setup-java v6.1.0 / setup-go v7.0.0 / cache v6.1.0 /
+#   upload-artifact v7.0.2（与知识库模板 PKB0805 同步）
 # ══════════════════════════════════════════════════════════════════════════════
 name: Build · CI · Release
 
