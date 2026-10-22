@@ -142,8 +142,8 @@ class SystemDnsObserver(context: Context) {
         if (selected == null) return if (pendingCapabilities) null else emptyList()
         // onAvailable 后会依次补齐这两个字段，期间不能把尚未就绪误报成断网。
         val properties = selected.linkProperties ?: return null
-        return properties.dnsServers.map { address ->
-            val host = address.hostAddress
+        return properties.dnsServers.mapNotNull { address ->
+            val host = address.hostAddress?.substringBefore('%') ?: return@mapNotNull null
             if (address is Inet6Address) "[$host]:53" else "$host:53"
         }
     }

@@ -215,7 +215,7 @@ object RuntimeOverrideBuilder {
             autoDetectInterface = isRootTun,
             routeExcludeAddress = routeExclude,
             inet6Address = inet6,
-            dnsHijack = listOf("0.0.0.0:53"),
+            dnsHijack = if (ipv6Enabled) listOf("0.0.0.0:53", "[::]:53") else listOf("0.0.0.0:53"),
             includePackage = include,
             excludePackage = exclude,
             iproute2TableIndex = if (isRootTun) ROOT_TUN_TABLE else null,

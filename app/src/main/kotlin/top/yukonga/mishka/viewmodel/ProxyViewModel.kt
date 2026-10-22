@@ -169,9 +169,7 @@ class ProxyViewModel(
                 nodeProviderMap = providerOf
 
                 val globalGroup = groupsResponse.proxies.firstOrNull { it.name == GLOBAL_GROUP }
-                val orderMap = globalGroup?.all
-                    ?.mapIndexed { index, name -> name to index }
-                    ?.toMap() ?: emptyMap()
+                val orderMap = globalGroup?.all?.withIndex()?.associate { it.value to it.index } ?: emptyMap()
 
                 // 过滤 hidden 策略组；GLOBAL 同样遵循 hidden，但在全局模式下作为唯一生效出口强制保留
                 val showGlobal = globalGroup != null && (!globalGroup.hidden || mode == MODE_GLOBAL)

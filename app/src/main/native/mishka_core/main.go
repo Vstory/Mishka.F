@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/metacubex/mihomo/component/age"
 	"github.com/metacubex/mihomo/component/http"
+	"github.com/metacubex/mihomo/component/resolver"
 	"github.com/metacubex/mihomo/constant"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ func mishkaCoreInit(homeDir *C.char, userAgent *C.char) {
 	// homeDir 决定 mihomo 读 GeoIP/GeoSite/ASN 数据库的位置；进程级全局，只设一次。
 	initOnce.Do(func() {
 		constant.SetHomeDir(C.GoString(homeDir))
+		resolver.DisableIPv6 = false
 	})
 	ua := C.GoString(userAgent)
 	if ua != "" {
