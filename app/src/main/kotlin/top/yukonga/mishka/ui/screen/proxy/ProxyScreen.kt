@@ -718,7 +718,7 @@ private fun GroupIcon(
                 bitmap = current,
                 contentDescription = name,
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .squircleClip(8.dp),
             )
         } else {
@@ -733,7 +733,7 @@ private fun GroupIcon(
 private fun DefaultGroupIcon(name: String) {
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(30.dp)
             .squircleBackground(MiuixTheme.colorScheme.primary.copy(alpha = 0.1f), 8.dp),
         contentAlignment = Alignment.Center,
     ) {

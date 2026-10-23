@@ -57,6 +57,8 @@
     <!-- Service Errors -->
     <string name="error_vpn_failed">VPN 建立失败: %1$s</string>
     <string name="error_vpn_denied">VPN 权限被拒绝</string>
+    <string name="error_vpn_no_selected_apps">请至少选择一个已安装且不是 Mishka 的应用，再启动 VPN</string>
+    <string name="error_vpn_not_ready">VPN 启动未完成，或控制 API 不可用</string>
     <string name="error_start_failed">启动失败</string>
     <string name="error_root_failed">无法获取 Root 权限</string>
     <string name="error_mihomo_not_found">mihomo 二进制文件未找到</string>

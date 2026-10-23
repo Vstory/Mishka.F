@@ -7,6 +7,9 @@ object RootHelper {
 
     private const val TAG = "RootHelper"
 
+    // netd 也以 UID 0 运行；DNS 自绕必须同时匹配核心的主 GID，不能放行整个 root UID。
+    internal const val CORE_GID = 3005
+
     internal data class ShellOutcome(val code: Int, val output: String)
 
     /**
@@ -64,7 +67,7 @@ object RootHelper {
                 "${escapeShellSingleQuoted(binary)} $argsStr > ${escapeShellSingleQuoted(logFile)} 2>&1 & echo \$!"
         Log.i(TAG, "Starting as root: ${redactArgs(args)}")
         return try {
-            val process = ProcessBuilder("su", "-c", command)
+            val process = ProcessBuilder("su", "-g", CORE_GID.toString(), "-c", command)
                 .redirectErrorStream(true)
                 .start()
             val reader = process.inputStream.bufferedReader()
@@ -76,6 +79,26 @@ object RootHelper {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start as root: ${e.message}")
             -1
+        }
+    }
+
+    internal fun hasCoreCredentials(pid: Int): Boolean {
+        if (pid <= 0) return false
+        val script = """
+            core_uid=''; core_gid=''
+            while read -r key real effective saved filesystem rest; do
+                case "${'$'}key" in
+                    Uid:) core_uid="${'$'}real:${'$'}effective:${'$'}saved:${'$'}filesystem" ;;
+                    Gid:) core_gid="${'$'}real:${'$'}effective:${'$'}saved:${'$'}filesystem" ;;
+                esac
+            done < /proc/$pid/status
+            [ "${'$'}core_uid" = '0:0:0:0' ] && [ "${'$'}core_gid" = '$CORE_GID:$CORE_GID:$CORE_GID:$CORE_GID' ]
+        """.trimIndent()
+        return try {
+            val process = ProcessBuilder("su", "-c", script).redirectErrorStream(true).start()
+            awaitDrained(process, timeoutSeconds = 3).code == 0
+        } catch (_: Exception) {
+            false
         }
     }
 

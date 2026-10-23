@@ -77,8 +77,12 @@ func TestRuntimeTunCongestionController(t *testing.T) {
 			subscription := []byte("tun:\n  enable: true\n  congestion-controller: bbr\n")
 			override := fmt.Sprintf(`{ "tun": { "file-descriptor": %d, "mtu": 9000, "auto-route": false } }`, fd)
 			got := parseRuntimeConfig(t, subscription, override).General.Tun.CongestionController
-			if got != "bbr" {
-				t.Fatalf("TUN congestion controller = %q, want bbr", got)
+			want := "bbr"
+			if fd > 0 {
+				want = ""
+			}
+			if got != want {
+				t.Fatalf("TUN congestion controller = %q, want %q", got, want)
 			}
 		})
 	}

@@ -21,8 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import top.yukonga.mishka.data.database.SelectionDao
 import top.yukonga.mishka.data.database.SelectionEntity
-import top.yukonga.mishka.domain.repository.MihomoRepository
 import top.yukonga.mishka.domain.model.ProxyNode
+import top.yukonga.mishka.domain.repository.MihomoRepository
 import top.yukonga.mishka.platform.PlatformStorage
 import top.yukonga.mishka.platform.StorageKeys
 import top.yukonga.mishka.util.describe

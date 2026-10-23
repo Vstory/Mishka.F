@@ -7,11 +7,80 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <stdint.h>
+#include <time.h>
 #include <android/log.h>
 
 #define TAG "ProcessHelper"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+JNIEXPORT jint JNICALL
+Java_top_yukonga_mishka_service_ProcessHelper_nativeCreateHttpListener(
+        JNIEnv *env, jclass clazz) {
+    // 随机数只在父进程的 JNI 调用中读取，不能移入 fork 到 exec 之间。
+    int random_fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (random_fd < 0) return -1;
+
+    unsigned char random_address[3];
+    size_t offset = 0;
+    while (offset < sizeof(random_address)) {
+        ssize_t count = read(random_fd, random_address + offset, sizeof(random_address) - offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) {
+            close(random_fd);
+            return -1;
+        }
+        offset += (size_t) count;
+    }
+    close(random_fd);
+
+    // 不设置 CLOEXEC：子进程通过 --vpn-http-fd 接管这个已监听 socket。
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_in address = {0};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(0x7f000000u
+            | ((1u + (unsigned int) random_address[0] % 199u) << 16)
+            | ((1u + (unsigned int) random_address[1] % 199u) << 8)
+            | (1u + (unsigned int) random_address[2] % 199u));
+    address.sin_port = htons(0);
+    if (bind(fd, (const struct sockaddr *) &address, sizeof(address)) < 0
+            || listen(fd, SOMAXCONN) < 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static int http_listener_address(int fd, struct sockaddr_in *address) {
+    socklen_t length = sizeof(*address);
+    return getsockname(fd, (struct sockaddr *) address, &length) == 0
+            && length == sizeof(*address) && address->sin_family == AF_INET;
+}
+
+JNIEXPORT jint JNICALL
+Java_top_yukonga_mishka_service_ProcessHelper_nativeHttpListenerPort(
+        JNIEnv *env, jclass clazz, jint fd) {
+    struct sockaddr_in address = {0};
+    if (!http_listener_address(fd, &address)) return -1;
+    return (jint) ntohs(address.sin_port);
+}
+
+JNIEXPORT jstring JNICALL
+Java_top_yukonga_mishka_service_ProcessHelper_nativeHttpListenerAddress(
+        JNIEnv *env, jclass clazz, jint fd) {
+    struct sockaddr_in address = {0};
+    if (!http_listener_address(fd, &address)) return NULL;
+    char numeric_address[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &address.sin_addr, numeric_address, sizeof(numeric_address)) == NULL) {
+        return NULL;
+    }
+    return (*env)->NewStringUTF(env, numeric_address);
+}
 
 /**
  * fork + exec 启动子进程，不关闭继承的 fd。
@@ -118,70 +187,110 @@ Java_top_yukonga_mishka_service_ProcessHelper_nativeForkExec(
     return result;
 }
 
-/**
- * waitpid 的 EINTR 重试包装。裸 waitpid 被信号打断时返回 -1 而 status 保持初值 0，
- * WIFEXITED(0) 为真、WEXITSTATUS(0) 为 0，会把「被打断」误报成「正常退出」。
- */
-static pid_t waitpid_eintr(pid_t pid, int *status, int options) {
-    pid_t r;
+enum {
+    STOP_NOT_CHILD = -1,
+    STOP_TIMEOUT = -2,
+    STOP_PENDING = -3,
+    STOP_ERROR_BASE = -1000,
+};
+
+static int stop_error(int error) {
+    return STOP_ERROR_BASE - error;
+}
+
+static int observe_child(pid_t pid, siginfo_t *info) {
+    int result;
     do {
-        r = waitpid(pid, status, options);
-    } while (r < 0 && errno == EINTR);
-    return r;
+        memset(info, 0, sizeof(*info));
+        result = waitid(P_PID, (id_t) pid, info, WEXITED | WNOHANG | WNOWAIT);
+    } while (result < 0 && errno == EINTR);
+    return result;
 }
 
-/**
- * 向子进程发送信号：force 为 SIGKILL，否则 SIGTERM。
- */
-JNIEXPORT void JNICALL
-Java_top_yukonga_mishka_service_ProcessHelper_nativeKill(
-        JNIEnv *env, jclass clazz, jint pid, jboolean force) {
-    if (pid > 0) {
-        int sig = force ? SIGKILL : SIGTERM;
-        LOGI("killing pid=%d sig=%d", pid, sig);
-        kill((pid_t) pid, sig);
-    }
-}
-
-/**
- * 判活兼收割。**不能用 /proc 判活**：mihomo 是本进程 fork 的亲生子，退出后进入僵尸态，
- * 而僵尸的 /proc/<pid> 依然存在——除非恰好有别的线程 waitpid(-1) 把它收走，
- * 否则崩溃检测永远认为它还活着。WNOHANG 顺手把僵尸收掉。
- */
+// 判活保留僵尸，防止本组件先收割、随后 stop 仍拿旧 PID 发信号。
 JNIEXPORT jboolean JNICALL
 Java_top_yukonga_mishka_service_ProcessHelper_nativeIsAlive(
         JNIEnv *env, jclass clazz, jint pid) {
     if (pid <= 0) return JNI_FALSE;
-    int status = 0;
-    // 0：仍在运行；pid：刚收割掉；-1(ECHILD)：非本进程子进程或已被别处收割
-    return waitpid_eintr((pid_t) pid, &status, WNOHANG) == 0 ? JNI_TRUE : JNI_FALSE;
+    siginfo_t info;
+    return observe_child((pid_t) pid, &info) == 0 && info.si_pid == 0
+            ? JNI_TRUE : JNI_FALSE;
 }
 
-/**
- * 等待子进程结束，最多 timeoutMs。返回退出码；被信号终止返回 128+signo；超时或非本进程
- * 子进程返回 -1。**不能无限期等**：调用点在 Service.onDestroy 的主线程上，而 mihomo 收
- * SIGTERM 后要关 TUN、断全部连接，卡住就是 ANR。
- */
-JNIEXPORT jint JNICALL
-Java_top_yukonga_mishka_service_ProcessHelper_nativeWaitpid(
-        JNIEnv *env, jclass clazz, jint pid, jint timeoutMs) {
-    if (pid <= 0) return -1;
-    const long stepUs = 10 * 1000;
-    long remainingUs = (long) timeoutMs * 1000;
-    for (;;) {
-        int status = 0;
-        pid_t r = waitpid_eintr((pid_t) pid, &status, WNOHANG);
-        if (r == (pid_t) pid) {
-            if (WIFEXITED(status)) return WEXITSTATUS(status);
-            if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
-            return -1;
-        }
-        if (r < 0) return -1;
-        if (remainingUs <= 0) {
-            LOGE("waitpid pid=%d timed out after %dms", pid, timeoutMs);
-            return -1;
-        }
-        usleep(stepUs);
-        remainingUs -= stepUs;
+static int reap_or_observe_child(pid_t pid) {
+    siginfo_t info;
+    if (observe_child(pid, &info) < 0) {
+        return errno == ECHILD ? STOP_NOT_CHILD : stop_error(errno);
     }
+    if (info.si_pid == 0) return STOP_PENDING;
+
+    int status;
+    pid_t result;
+    do {
+        result = waitpid(pid, &status, WNOHANG);
+    } while (result < 0 && errno == EINTR);
+    if (result < 0) return errno == ECHILD ? STOP_NOT_CHILD : stop_error(errno);
+    if (result == pid) {
+        if (WIFEXITED(status)) return WEXITSTATUS(status);
+        if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    }
+    return stop_error(EAGAIN);
+}
+
+static int signal_owned_child(pid_t pid, int signal_number) {
+    for (;;) {
+        int state = reap_or_observe_child(pid);
+        if (state != STOP_PENDING) return state;
+        // libcore 等外部 reaper 不受本组件锁约束；没有 pidfd，检查到 kill 之间仍有 TOCTOU。
+        if (kill(pid, signal_number) == 0) return STOP_PENDING;
+        int error = errno;
+        if (error == EINTR) continue;
+        if (error == ESRCH) {
+            state = reap_or_observe_child(pid);
+            if (state != STOP_PENDING) return state;
+        }
+        return stop_error(error);
+    }
+}
+
+static int monotonic_time_ns(int64_t *value) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) return stop_error(errno);
+    *value = (int64_t) now.tv_sec * 1000000000 + now.tv_nsec;
+    return 0;
+}
+
+static int wait_for_child_exit(pid_t pid, int timeout_ms) {
+    int64_t now;
+    int result = monotonic_time_ns(&now);
+    if (result < 0) return result;
+    const int64_t deadline = now + (int64_t) timeout_ms * 1000000;
+    for (;;) {
+        result = reap_or_observe_child(pid);
+        if (result != STOP_PENDING) return result;
+        result = monotonic_time_ns(&now);
+        if (result < 0) return result;
+        if (now >= deadline) return STOP_TIMEOUT;
+        int64_t remaining = deadline - now;
+        struct timespec pause = {
+                .tv_sec = 0,
+                .tv_nsec = remaining < 10000000 ? (long) remaining : 10000000,
+        };
+        // EINTR 后重新观察子进程和单调时钟，避免信号延长真实超时。
+        if (nanosleep(&pause, NULL) < 0 && errno != EINTR) return stop_error(errno);
+    }
+}
+
+JNIEXPORT jint JNICALL
+Java_top_yukonga_mishka_service_ProcessHelper_nativeStop(
+        JNIEnv *env, jclass clazz, jint pid, jint grace_ms, jint force_ms) {
+    if (pid <= 0 || grace_ms < 0 || force_ms < 0) return stop_error(EINVAL);
+    int result = signal_owned_child((pid_t) pid, SIGTERM);
+    if (result != STOP_PENDING) return result;
+    result = wait_for_child_exit((pid_t) pid, grace_ms);
+    // ECHILD 表示所有权已经结束，只有仍活着且真正超时才允许升级。
+    if (result != STOP_TIMEOUT) return result;
+    result = signal_owned_child((pid_t) pid, SIGKILL);
+    if (result != STOP_PENDING) return result;
+    return wait_for_child_exit((pid_t) pid, force_ms);
 }

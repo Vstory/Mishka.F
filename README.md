@@ -22,12 +22,14 @@
 
 - 内置 [mihomo](https://github.com/MetaCubeX/mihomo) 内核（Mishka fork），统一为单个 `libmihomo.so` 同时承担 runtime 入口与订阅导入 JNI 门面
 - 三种隧道模式，随时切换：
-  - **VPN** —— 无需 Root，基于系统 `VpnService`
+  - **VPN** —— 无需 Root，基于系统 `VpnService`；IPv4/IPv6 地址与核心同步，独立系统 HTTP 代理不受订阅端口和认证影响，支持按包名进程规则
   - **ROOT TUN** —— Root 自建 TUN，`auto-route` + 大包 GSO 聚合
   - **ROOT TPROXY** —— 内核态透明代理（iptables + fwmark），性能接近直连
 - **分应用代理** —— 白/黑名单，三模式各自走 VpnService / `include-package` / iptables uid-owner；非“允许全部应用”模式支持下拉刷新已安装应用列表，并按当前勾选项优先重排
+- VPN“仅允许选中应用”需至少一个已安装且不是 Mishka 的应用；空名单拒绝启动，不会退化为全应用代理
 - **热点流量处置**（ROOT）—— 支持绕过代理或透明代理（TPROXY）两种模式
-- **系统 DNS 同步** —— 启动时初始化转发子进程；应用进程监听非 VPN 网络的 DNS 变化，同步更新 JNI 导入核心与运行时核心，并刷新直连、节点域名等解析缓存
+- **系统 DNS 同步** —— 启动时初始化转发子进程；监听非 VPN 网络的 DNS 变化，同步更新 JNI 与运行时核心并刷新缓存，保留 IPv6 link-local DNS 的数字 scope ID
+- Android 跨用户/工作资料共用 loopback 入口时，可通过 ADB 显式授予 `android.permission.INTERACT_ACROSS_USERS`；普通单用户使用无需该权限
 
 **订阅管理**
 

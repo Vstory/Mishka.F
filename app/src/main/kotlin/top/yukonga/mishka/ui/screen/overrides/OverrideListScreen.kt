@@ -160,9 +160,11 @@ fun OverrideListScreen(
                 }
 
                 item(key = "bottom_spacer") {
-                    Spacer(Modifier
-                        .height(24.dp)
-                        .navigationBarsPadding())
+                    Spacer(
+                        Modifier
+                            .height(24.dp)
+                            .navigationBarsPadding()
+                    )
                 }
             }
         }
