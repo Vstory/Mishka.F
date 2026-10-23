@@ -138,9 +138,11 @@ class ProxyServiceController(private val context: Context) {
                     return ExternalProxyOutcome.Stopped
                 }
 
-            // 未运行不顺手拉起：界面上的重启按钮同样只在运行中出现，外部入口保持同一语义
+            // 未运行不顺手拉起：界面上的重启按钮同样只在运行中出现，外部入口保持同一语义。
+            // ROOT 残留进程例外：app 进程死过一轮后 bridge 停在 Stopped 而 mihomo 仍在跑，
+            // 此时重启才是调用方要的，判 NotRunning 会让这个残留进程彻底无人处理
             ExternalProxyAction.Restart ->
-                if (!running) return ExternalProxyOutcome.NotRunning
+                if (!running && !rootProcessLikelyAlive()) return ExternalProxyOutcome.NotRunning
         }
         val id = resolveStartSubscriptionId() ?: return ExternalProxyOutcome.NoSubscription
         if (!hasVpnPermission()) return ExternalProxyOutcome.NeedVpnPermission(id)
