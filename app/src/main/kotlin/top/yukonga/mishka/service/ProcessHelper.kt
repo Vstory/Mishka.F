@@ -17,15 +17,30 @@ object ProcessHelper {
      */
     external fun nativeForkExec(binary: String, args: Array<String>, workDir: String, logFile: String? = null): Int
 
-    /** 发送信号：[force] 为 SIGKILL，否则 SIGTERM */
-    external fun nativeKill(pid: Int, force: Boolean)
-
     /**
-     * 判活。走 waitpid(WNOHANG) 而非 `/proc`——mihomo 是本进程 fork 的亲生子，
-     * 退出后成僵尸，僵尸的 `/proc/<pid>` 仍在。顺带收割。
+     * 在父进程创建随机 127.x.x.x 地址、随机端口的 HTTP 监听 socket，失败返回 -1。
+     * fd 不带 CLOEXEC；调用方传给子进程，并持有至 stop、重启或启动失败时负责关闭。
      */
+    external fun nativeCreateHttpListener(): Int
+
+    /** 返回监听 fd 的实际端口，查询失败返回 -1。 */
+    external fun nativeHttpListenerPort(fd: Int): Int
+
+    /** 返回监听 fd 的实际数字 IPv4 地址（不含端口），查询失败返回 null。 */
+    external fun nativeHttpListenerAddress(fd: Int): String?
+
+    /** 僵尸的 `/proc/<pid>` 仍在；waitid(WNOWAIT) 只观察退出，不提前收割或释放 PID。 */
     external fun nativeIsAlive(pid: Int): Boolean
 
-    /** 等待子进程结束，最多 [timeoutMs]。返回退出码；被信号终止返回 128+signo；超时返回 -1 */
-    external fun nativeWaitpid(pid: Int, timeoutMs: Int): Int
+    const val STOP_NOT_CHILD = -1
+    const val STOP_TIMEOUT = -2
+    const val STOP_ERROR_BASE = -1000
+
+    /**
+     * 统一确认子进程所有权、TERM、限时等待、超时 KILL 与收割。调用方须串行持有该 PID。
+     * >=0 为已收割的退出码（信号终止为 128+signo）；[STOP_NOT_CHILD] 为 ECHILD、所有权已结束。
+     * [STOP_TIMEOUT] 表示强制停止仍超时；其他错误为 [STOP_ERROR_BASE]-errno。
+     * 超时或错误时必须保留 PID 与资源，不能将仍可能存活的子进程当作停止成功。
+     */
+    external fun nativeStop(pid: Int, graceMs: Int, forceMs: Int): Int
 }

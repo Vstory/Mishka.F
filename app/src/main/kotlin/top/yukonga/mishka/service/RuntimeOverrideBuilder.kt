@@ -27,6 +27,12 @@ object RuntimeOverrideBuilder {
     // VPN/ROOT TUN 共用 MTU。VpnService.Builder.setMtu 与 sing-tun cfg.Tun.MTU 必须同值：
     // sing-tun 在 fd 模式用 cfg.Tun.MTU 给 gvisor fdbased.New 设 endpoint 缓冲，0 时所有 read 失败。
     internal const val VPN_TUN_MTU = 9000
+    internal const val VPN_GATEWAY = "172.19.0.1"
+    internal const val VPN_GATEWAY6 = "fdfe:dcba:9876::1"
+    internal const val VPN_PREFIX = 30
+    internal const val VPN_PREFIX6 = 126
+    internal const val VPN_DNS = "172.19.0.2"
+    internal const val VPN_DNS6 = "fdfe:dcba:9876::2"
 
     // ROOT TUN 模式 sing-tun 路由常量，与 RootTetherHijacker 对齐
     // sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移
@@ -95,13 +101,11 @@ object RuntimeOverrideBuilder {
             // mihomo 若带 SO_MARK 会被解释为不存在的 netId，命中 legacy_system 表（无默认路由）
             // → mihomo 出站全部 `network unreachable`。iptables 改用 `-m owner --uid-owner 0`
             // 放行 mihomo（它以 root 运行），副作用是所有 root 进程都不经 TPROXY，但用户 app 正常代理
-            routingMark = userOverride.routingMark,
-            // tcp-concurrent：代理侧并发拨号，显著降低首包延迟，多客户端并发场景尤其有效；
-            // find-process-mode=off：ROOT TUN 分应用已由 sing-tun include/exclude-package 的 uidrange
-            // 处理，mihomo 运行期遍历 /proc 查进程纯属冗余；VPN 模式 AppProxy 走 VpnService 同理。
-            // 用户显式设置优先：仅在未设置时注入默认值
-            tcpConcurrent = userOverride.tcpConcurrent ?: true,
-            findProcessMode = userOverride.findProcessMode ?: "off",
+            routingMark = if (tunMode == TunMode.Vpn) 0 else userOverride.routingMark,
+            // VPN 的按包名规则经平台 UID 查询；不能用分应用接管名单替代规则匹配。
+            // ROOT 保持既有的默认注入，VPN 未显式覆写时沿用订阅/核心值。
+            tcpConcurrent = if (tunMode == TunMode.Vpn) userOverride.tcpConcurrent else userOverride.tcpConcurrent ?: true,
+            findProcessMode = if (tunMode == TunMode.Vpn) userOverride.findProcessMode else userOverride.findProcessMode ?: "off",
             dns = buildDnsOverride(tunMode, userOverride.dns),
             tun = buildTunOverride(context, tunMode, tunFd, userOverride.tun),
             profile = ProfileOverride(storeSelected = false, storeFakeIp = true),
@@ -138,90 +142,77 @@ object RuntimeOverrideBuilder {
         }
 
         val storage = PlatformStorage(context)
-        val isRootTun = tunMode == TunMode.RootTun
-
-        // 分应用代理：仅 RootTun 通过 mihomo include/exclude-package 实现；
-        // VPN 由 VpnService.Builder.addAllowed/DisallowedApplication 管；
-        // RootTproxy 走 iptables uid-owner（本函数早已 return）
-        // Mishka 自身保持排除，避免死循环
+        if (tunMode == TunMode.Vpn) {
+            val ipv6 = storage.getString(StorageKeys.VPN_ALLOW_IPV6, "false") == "true"
+            val hijack = storage.getString(StorageKeys.VPN_DNS_HIJACKING, "true") == "true"
+            return TunOverride(
+                enable = true,
+                stack = userTun?.stack,
+                fileDescriptor = tunFd,
+                autoRoute = false,
+                autoDetectInterface = false,
+                inet6Address = if (ipv6) listOf("$VPN_GATEWAY6/$VPN_PREFIX6") else emptyList(),
+                dnsHijack = buildList {
+                    add(if (hijack) "0.0.0.0:53" else "$VPN_DNS:53")
+                    if (ipv6) add(if (hijack) "[::]:53" else "[$VPN_DNS6]:53")
+                },
+                mtu = VPN_TUN_MTU,
+            )
+        }
+        val selfPkg = context.packageName
+        val proxyMode = parseAppProxyMode(storage.getString(StorageKeys.APP_PROXY_MODE, AppProxyMode.AllowAll.name))
+        val packages = storage.getStringSet(StorageKeys.APP_PROXY_PACKAGES, emptySet())
         val include: List<String>?
         val exclude: List<String>?
-        if (isRootTun) {
-            val selfPkg = context.packageName
-            val proxyMode = parseAppProxyMode(storage.getString(StorageKeys.APP_PROXY_MODE, AppProxyMode.AllowAll.name))
-            val packages = storage.getStringSet(StorageKeys.APP_PROXY_PACKAGES, emptySet())
-            when (proxyMode) {
-                // 空列表时用无效包名占位，确保不代理任何应用
-                AppProxyMode.AllowSelected -> {
-                    val filtered = packages.filter { it != selfPkg }
-                    include = if (filtered.isNotEmpty()) filtered else listOf("-")
-                    exclude = null
-                }
-
-                AppProxyMode.DenySelected -> {
-                    include = null
-                    exclude = (packages + selfPkg).distinct()
-                }
-
-                AppProxyMode.AllowAll -> {
-                    include = null
-                    exclude = listOf(selfPkg)
-                }
+        when (proxyMode) {
+            AppProxyMode.AllowSelected -> {
+                val filtered = packages.filter { it != selfPkg }
+                include = if (filtered.isNotEmpty()) filtered else listOf("-")
+                exclude = null
             }
-        } else {
-            include = null
-            exclude = null
+            AppProxyMode.DenySelected -> {
+                include = null
+                exclude = (packages + selfPkg).distinct()
+            }
+            AppProxyMode.AllowAll -> {
+                include = null
+                exclude = listOf(selfPkg)
+            }
         }
 
         val ipv6Enabled = storage.getString(StorageKeys.VPN_ALLOW_IPV6, "false") == "true"
-        // null 会被序列化省略；关闭时必须用空列表清除内核默认的 IPv6 地址。
-        val inet6 = when {
-            isRootTun && ipv6Enabled -> listOf("fdfe:dcba:9876::1/126")
-            !isRootTun -> emptyList()
-            else -> emptyList()
-        }
+        val inet6 = if (ipv6Enabled) listOf("fdfe:dcba:9876::1/126") else emptyList()
 
         // ROOT TUN 的 auto_route 缺省铺满 0.0.0.0/0，会把 LAN 单播 + 224/4 组播吸进 mihomo，
         // 破坏同 LAN 设备发现 / P2P 直连（如妙享桌面）。注入私网 + 组播 route-exclude 留在物理网卡，
         // 与 VPN / TPROXY 的 LAN 放行对齐；仅 ROOT TUN 需要，用户显式设置优先。
-        val routeExclude: List<String>? = when {
-            !isRootTun -> userTun?.routeExcludeAddress
-            else -> userTun?.routeExcludeAddress ?: buildList {
-                addAll(IptablesIntranet.V4)
-                if (ipv6Enabled) addAll(IptablesIntranet.V6)
-            }
+        val routeExclude = userTun?.routeExcludeAddress ?: buildList {
+            addAll(IptablesIntranet.V4)
+            if (ipv6Enabled) addAll(IptablesIntranet.V6)
         }
 
-        val device = userTun?.device
-            ?: if (isRootTun) storage.getString(StorageKeys.ROOT_TUN_DEVICE, DEFAULT_TUN_DEVICE) else null
+        val device = userTun?.device ?: storage.getString(StorageKeys.ROOT_TUN_DEVICE, DEFAULT_TUN_DEVICE)
 
-        // sing-tun userspace TUN 性能：mtu=9000 + gso + gso-max-size=65535 让大包聚合，
-        // 减少每包 read syscall；仅 ROOT TUN 注入 GSO（VPN fd 由 VpnService 创建无 vnet header）。
-        // 用户 override 的同名字段优先级最高，允许极端 ROM 下手动回退。
-        // VPN 模式 MTU 必须与 VpnService.Builder.setMtu 同步：sing-tun fd 模式给 gvisor fdbased.New
-        // 用 cfg.Tun.MTU 设 endpoint 缓冲，0 时所有 read 失败 → VPN 表面"延迟正常但流量不通"。
+        // ROOT 保留用户显式 MTU/GSO 与 jumbo 开关；VPN 固定走上方的 Builder 同源参数。
         val jumbo = storage.getString(StorageKeys.ROOT_TUN_JUMBO_MTU, "true") == "true"
-        val defaultMtu: Int = if (isRootTun && !jumbo) 1500 else VPN_TUN_MTU
-        val rootTunGso: Boolean? = if (isRootTun) jumbo else null
-        val rootTunGsoMax: Int? = if (isRootTun && jumbo) 65535 else null
+        val defaultMtu = if (jumbo) VPN_TUN_MTU else 1500
 
         return TunOverride(
             enable = true,
             device = device,
             stack = userTun?.stack,
-            fileDescriptor = tunFd.takeIf { it >= 0 && !isRootTun },
-            autoRoute = isRootTun,
-            autoDetectInterface = isRootTun,
+            autoRoute = true,
+            autoDetectInterface = true,
             routeExcludeAddress = routeExclude,
             inet6Address = inet6,
             dnsHijack = if (ipv6Enabled) listOf("0.0.0.0:53", "[::]:53") else listOf("0.0.0.0:53"),
             includePackage = include,
             excludePackage = exclude,
-            iproute2TableIndex = if (isRootTun) ROOT_TUN_TABLE else null,
-            iproute2RuleIndex = if (isRootTun) ROOT_TUN_RULE_INDEX else null,
+            iproute2TableIndex = ROOT_TUN_TABLE,
+            iproute2RuleIndex = ROOT_TUN_RULE_INDEX,
             mtu = userTun?.mtu ?: defaultMtu,
-            gso = userTun?.gso ?: rootTunGso,
-            gsoMaxSize = userTun?.gsoMaxSize ?: rootTunGsoMax,
+            gso = userTun?.gso ?: jumbo,
+            gsoMaxSize = userTun?.gsoMaxSize ?: if (jumbo) 65535 else null,
         )
     }
 

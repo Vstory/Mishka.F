@@ -144,7 +144,11 @@ class SystemDnsObserver(context: Context) {
         val properties = selected.linkProperties ?: return null
         return properties.dnsServers.mapNotNull { address ->
             val host = address.hostAddress?.substringBefore('%') ?: return@mapNotNull null
-            if (address is Inet6Address) "[$host]:53" else "$host:53"
+            if (address is Inet6Address) {
+                // 接口名 zone 依赖解析进程的接口视图；跨进程传数字 scope 保留链路本地 DNS 路由。
+                val scope = if (address.scopeId > 0) "%${address.scopeId}" else ""
+                "[$host$scope]:53"
+            } else "$host:53"
         }
     }
 

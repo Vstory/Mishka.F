@@ -2,22 +2,32 @@ package top.yukonga.mishka.service
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import top.yukonga.mishka.R
 import top.yukonga.mishka.platform.PlatformStorage
 import top.yukonga.mishka.platform.StorageKeys
 import top.yukonga.mishka.platform.SystemDnsObserver
+import top.yukonga.mishka.util.describe
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 class MihomoRunner(private val context: Context) {
 
+    // Service 串行管理 start/stop；此锁额外隔离 VPN monitor 与 stop，不包住 ROOT 的 su 调用。
+    private val processLock = Any()
+    @Volatile
     private var childPid: Int = -1
+    @Volatile
     private var isRootMode = false
-    val pid: Int get() = childPid
+    private var vpnReadyFile: File? = null
+    val pid: Int get() = synchronized(processLock) { childPid }
     var secret: String = ""
     var externalController: String = "127.0.0.1:9090"
     var activeSubscriptionId: String? = null
@@ -26,12 +36,18 @@ class MihomoRunner(private val context: Context) {
         private set
 
     /**
-     * 进程是否仍在。两条分支代价差一个量级：VPN 走 `waitpid(WNOHANG)`（本进程亲生子，
-     * 顺带收僵尸，基本免费），**ROOT 每次调用都要 fork 一个 su**——`/proc` 在 Android 10+
-     * 是 hidepid，app 根本读不到 root 进程，判活只能借 root shell。轮询它的地方要自己控频。
+     * 进程是否仍在。VPN 走 waitid(WNOWAIT)，只观察、由 stop 统一收割；
+     * ROOT 每次调用都要 fork 一个 su——`/proc` 在 Android 10+ 是 hidepid，
+     * app 读不到 root 进程，轮询它的地方要自己控频。
      */
     val isRunning: Boolean
-        get() = childPid > 0 && if (isRootMode) RootHelper.isAliveAsRoot(childPid) else isProcessAlive(childPid)
+        get() {
+            val rootPid = synchronized(processLock) {
+                if (!isRootMode) return childPid > 0 && isProcessAlive(childPid)
+                childPid
+            }
+            return rootPid > 0 && RootHelper.isAliveAsRoot(rootPid)
+        }
 
     /**
      * 尝试重连已持久化的 mihomo 进程。三重校验任一失败均返回 false：
@@ -95,6 +111,9 @@ class MihomoRunner(private val context: Context) {
         ageSecretKey: String = "",
         transformPath: String? = null,
         preferTransformMixedPort: Boolean = false,
+        vpnGateway: String? = null,
+        vpnHttpFd: Int = -1,
+        vpnPlatformSocket: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
         if (isRunning) {
             Log.w(TAG, "mihomo already running")
@@ -129,12 +148,22 @@ class MihomoRunner(private val context: Context) {
         }
 
         try {
+            val readyFile = if (!useRoot) {
+                require(!vpnGateway.isNullOrEmpty() && !vpnPlatformSocket.isNullOrEmpty())
+                File(context.cacheDir, "vpn-${UUID.randomUUID()}.ready").also { vpnReadyFile = it }
+            } else null
             // age 加密订阅：config.yaml 加密落盘，运行时用 --age-secret-key 让 mihomo 加载时解密
             val args = buildList {
                 add("-d"); add(workDir.absolutePath)
                 add("-f"); add(configFile.absolutePath)
                 add("--override-json"); add(overrideJsonPath)
                 add("--system-dns"); add(SystemDnsObserver(context).snapshot().joinToString(","))
+                if (!useRoot) {
+                    add("--vpn-gateway"); add(requireNotNull(vpnGateway))
+                    add("--vpn-platform-socket"); add(requireNotNull(vpnPlatformSocket))
+                    add("--vpn-ready-file"); add(requireNotNull(readyFile).absolutePath)
+                    if (vpnHttpFd >= 0) { add("--vpn-http-fd"); add(vpnHttpFd.toString()) }
+                }
                 if (transformPath != null) {
                     add("--transform"); add(transformPath)
                     if (preferTransformMixedPort) add("--prefer-transform-mixed-port")
@@ -146,6 +175,7 @@ class MihomoRunner(private val context: Context) {
                 }
             }.toTypedArray()
             val logFile = File(workDir, "mihomo.log")
+            if (!useRoot) currentCoroutineContext().ensureActive()
 
             childPid = if (useRoot) {
                 RootHelper.startAsRoot(
@@ -184,15 +214,25 @@ class MihomoRunner(private val context: Context) {
             errorMessage = ""
             Log.i(TAG, "mihomo started: pid=$childPid (root=$useRoot)")
             true
+        } catch (e: CancellationException) {
+            if (!useRoot) stop()
+            throw e
         } catch (e: Exception) {
-            errorMessage = context.getString(R.string.error_generic_start_failed, e.message ?: "")
+            if (!useRoot) stop()
+            errorMessage = context.getString(R.string.error_generic_start_failed, e.describe())
             Log.e(TAG, "Failed to start mihomo", e)
             false
         }
     }
 
     /** 返回是否确认进程已死：未确认时调用方必须保留持久化 PID，否则残留进程再也定位不到。 */
-    fun stop(): Boolean {
+    fun stop(): Boolean = if (isRootMode) {
+        stopOwnedProcess()
+    } else {
+        synchronized(processLock) { stopOwnedProcess() }
+    }
+
+    private fun stopOwnedProcess(): Boolean {
         var confirmedDead = true
         if (childPid > 0) {
             val target = childPid
@@ -206,35 +246,46 @@ class MihomoRunner(private val context: Context) {
                 // pkill 兜底后不复查的话，杀掉与否无从得知
                 confirmedDead = !RootHelper.isAliveAsRoot(target)
             } else {
-                ProcessHelper.nativeKill(target, force = false)
-                // SIGTERM 后 mihomo 要关 TUN、断全部连接；等不到就升级，绝不无限期等
-                if (ProcessHelper.nativeWaitpid(target, GRACEFUL_STOP_TIMEOUT_MS) < 0) {
-                    Log.w(TAG, "mihomo pid=$target ignored SIGTERM, escalating to SIGKILL")
-                    ProcessHelper.nativeKill(target, force = true)
-                    ProcessHelper.nativeWaitpid(target, FORCE_STOP_TIMEOUT_MS)
+                val result = ProcessHelper.nativeStop(target, GRACEFUL_STOP_TIMEOUT_MS, FORCE_STOP_TIMEOUT_MS)
+                confirmedDead = result >= 0 || result == ProcessHelper.STOP_NOT_CHILD
+                if (!confirmedDead) {
+                    // 未确认死亡时保留所有权，调用方据此保留持久化 PID
+                    Log.w(
+                        TAG,
+                        if (result == ProcessHelper.STOP_TIMEOUT) {
+                            "mihomo pid=$target did not exit after SIGKILL; process ownership retained"
+                        } else {
+                            "Failed to stop mihomo pid=$target (errno=${ProcessHelper.STOP_ERROR_BASE - result}); process ownership retained"
+                        },
+                    )
                 }
             }
+            if (!confirmedDead) return false
             childPid = -1
         }
         secret = ""
         isRootMode = false
-        return confirmedDead
+        vpnReadyFile?.delete()
+        vpnReadyFile = null
+        return true
     }
 
     /**
      * 轮询等待 mihomo 就绪。返回 null 表示成功，返回错误消息表示失败。
-     * 每轮先检查进程是否存活（快速失败），再尝试 API 连接。
-     * API 就绪后再扫描日志检查 TUN init —— mihomo TUN 失败走 log.Errorln 不退出，
-     * 其他 inbound 仍响应 /version，只有日志能区分 silent failure。
+     * VPN 等原生的成功确认文件和带鉴权 API；ROOT 保留 API + 日志扫描策略。
      */
     private suspend fun waitForReady(useRoot: Boolean, workDir: File): String? {
         repeat(20) { round ->
             delay(500)
-            // API 响应则就绪 —— 但还需要确认 TUN inbound 也成功
-            if (isApiReady()) {
-                // 额外等待让 mihomo 完成 TUN init 并输出日志
-                delay(500)
-                return scanLogForTunError(useRoot, workDir)
+            if (useRoot) {
+                if (isApiReady()) {
+                    delay(500)
+                    return scanLogForTunError(true, workDir)
+                }
+            } else {
+                // API 可能先于 TUN 初始化，日志又受用户 log-level 控制；原生明确确认后才发布 Running。
+                val ready = vpnReadyFile?.takeIf { it.isFile }?.readText() == "ready"
+                if (ready && isApiAuthorized(secret, externalController, timeoutMs = 500)) return null
             }
             // 进程退出则快速失败。ROOT 下 /proc 是 hidepid，判活要 fork 一次 su，
             // 故降到 2s 一次——总预算 10s，晚 1.5s 发现死亡不影响诊断
@@ -251,12 +302,13 @@ class MihomoRunner(private val context: Context) {
             }
         }
         // 超时：尝试读取日志辅助诊断
+        val timeoutMessage = context.getString(if (useRoot) R.string.error_api_not_ready else R.string.error_vpn_not_ready)
         val logContent = readStartupLog(useRoot, workDir)
         return if (logContent.isNotBlank()) {
             Log.w(TAG, "API timeout, mihomo log:\n$logContent")
-            context.getString(R.string.error_api_not_ready) + "\n" + extractErrorMessage(logContent)
+            timeoutMessage + "\n" + extractErrorMessage(logContent)
         } else {
-            context.getString(R.string.error_api_not_ready)
+            timeoutMessage
         }
     }
 

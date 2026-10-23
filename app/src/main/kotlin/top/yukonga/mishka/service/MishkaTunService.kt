@@ -7,15 +7,17 @@ import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import top.yukonga.mishka.MishkaApplication
 import top.yukonga.mishka.R
@@ -30,8 +32,8 @@ import top.yukonga.mishka.platform.ProxyServiceStatus
 import top.yukonga.mishka.platform.ProxyState
 import top.yukonga.mishka.platform.StorageKeys
 import top.yukonga.mishka.platform.TunMode
+import top.yukonga.mishka.util.describe
 import java.io.File
-import java.io.FileDescriptor
 import kotlin.time.Clock
 
 @SuppressLint("VpnServicePolicy")
@@ -40,6 +42,10 @@ class MishkaTunService : VpnService() {
     // 启停链全程阻塞：孤儿清理的 su 调用、mihomo fork+exec 与 waitForReady 轮询、日志尾读。
     // 跑在 Default 上会长时间占住数个 CPU 池线程，与 Compose 重组、导入管线抢同一批核
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val lifetime = VpnRuntimeHandoff.claim()
+    private val lifecycleLock = Any()
+    private var destroyed = false
+    private var foregroundFailure: ProxyServiceStatus? = null
     private val runner by lazy { MihomoRunner(this) }
     private val dynamicNotification by lazy {
         DynamicNotificationManager(this, scope, MishkaApplication.instance.connectionManager)
@@ -50,14 +56,26 @@ class MishkaTunService : VpnService() {
     private val transformWriter: ProfileTransformWriter by inject()
     private val subscriptionRepository: SubscriptionRepositoryImpl by inject()
     private var tunFd: Int = -1
+    private var httpListenerFd: Int = -1
+    private var platformBridge: VpnPlatformBridge? = null
+    private var foregroundReady = false
     private var monitorJob: Job? = null
     private var notificationRefreshJob: Job? = null
 
-    // 与 ROOT 侧同源：ACTION_START 会被「打开应用自动连接」与补发 BOOT_COMPLETED 的
-    // BootReceiver 各触发一次，并发启动会重复建 TUN fd 并 fork 两个 mihomo。
-    // 跨线程访问（onStartCommand 在主线程，stop/restart/revoke 在 IO 协程）故 @Volatile。
-    @Volatile
+    private data class VpnCommand(
+        val action: String,
+        val subscriptionId: String? = null,
+        val startId: Int = 0,
+        val generation: Long = -1,
+        val error: String? = null,
+    )
+
+    // START 只启动可取消任务；STOP/RESTART 在同一个消费方等待它收敛，不能各自并发清理 fd。
+    private val commands = Channel<VpnCommand>(Channel.UNLIMITED)
     private var startJob: Job? = null
+    private var generation = 0L
+    private var activeStartId = 0
+    private var latestStartId = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -69,18 +87,43 @@ class MishkaTunService : VpnService() {
             )
         } catch (e: Exception) {
             Log.e(TAG, "startForeground failed", e)
-            ProxyServiceBridge.updateState(
-                ProxyServiceStatus(
-                    ProxyState.Error,
-                    errorMessage = getString(R.string.error_foreground_failed, e.message ?: e.javaClass.simpleName),
-                    tunMode = TunMode.Vpn,
-                )
+            foregroundFailure = ProxyServiceStatus(
+                ProxyState.Error,
+                errorMessage = getString(R.string.error_foreground_failed, e.message ?: e.javaClass.simpleName),
+                tunMode = TunMode.Vpn,
             )
             stopSelf()
             return
         }
+        foregroundReady = true
+        scope.launch {
+            lifetime.awaitPredecessor()
+            for (command in commands) {
+                try {
+                    when (command.action) {
+                        ACTION_START -> {
+                            val id = command.subscriptionId
+                                ?: ProxyServiceController(this@MishkaTunService).resolveStartSubscriptionId()
+                            if (id != null) startProxy(id, command.startId) else stopSelfResult(command.startId)
+                        }
+                        ACTION_RESTART -> restartProxy(command.subscriptionId, command.startId)
+                        ACTION_STOP -> stopProxy(command.startId)
+                        ACTION_DIED -> if (generation == command.generation) stopProxy(activeStartId, command.error)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "VPN command failed", e)
+                    ProxyServiceBridge.updateState(
+                        ProxyServiceStatus(ProxyState.Error, errorMessage = e.describe(), tunMode = TunMode.Vpn)
+                    )
+                    if (command.startId > 0) stopSelfResult(command.startId) else stopSelf()
+                }
+            }
+        }
         // 监听动态通知设置变化，实时切换通知样式
         notificationRefreshJob = scope.launch {
+            lifetime.awaitPredecessor()
             ProxyServiceBridge.notificationRefresh.collect {
                 val state = ProxyServiceBridge.state.value
                 if (state.state == ProxyState.Running && state.tunMode == TunMode.Vpn) {
@@ -94,294 +137,248 @@ class MishkaTunService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!foregroundReady) return START_NOT_STICKY
+        latestStartId = startId
         when (intent?.action) {
-            ACTION_START -> {
-                val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
-                startProxy(subscriptionId)
-            }
-
-            ACTION_STOP -> stopProxy()
-            ACTION_RESTART -> {
-                val subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID)
-                restartProxy(subscriptionId)
+            ACTION_START, ACTION_STOP, ACTION_RESTART -> commands.trySend(
+                VpnCommand(
+                    action = requireNotNull(intent.action),
+                    subscriptionId = intent.getStringExtra(ProxyServiceController.EXTRA_SUBSCRIPTION_ID),
+                    startId = startId,
+                )
+            )
+            null, SERVICE_INTERFACE -> {
+                // 校验也在前驱收敛后执行，不能从新实例的主线程覆盖旧实例状态。
+                commands.trySend(VpnCommand(ACTION_START, startId = startId))
             }
         }
         return START_STICKY
     }
 
-    /** 启动代理。**幂等**：已有启动协程在跑时忽略本次请求（见 [startJob]）。 */
-    private fun startProxy(subscriptionId: String? = null) {
-        if (startJob?.isActive == true) {
-            Log.i(TAG, "Start already in progress, ignoring duplicate START")
+    /** 启动和取消均由 Service 拥有；失败时关闭父进程持有的全部 VPN 资源。 */
+    private fun startProxy(subscriptionId: String?, startId: Int) {
+        activeStartId = startId
+        if (startJob?.isActive == true || (runner.isRunning && ProxyServiceBridge.state.value.state == ProxyState.Running)) {
+            Log.i(TAG, "VPN already starting or running, ignoring duplicate START")
             return
         }
+        val runGeneration = ++generation
         startJob = scope.launch {
-            Log.i(TAG, "Starting proxy, subscription: $subscriptionId")
-            // 防御外部直拉 Service：无 config 时 mihomo TUN init silent failure，必须 fast-fail
-            if (!ProfileFileOps.hasValidConfig(this@MishkaTunService, subscriptionId)) {
-                Log.e(TAG, "No valid subscription config (id=$subscriptionId), aborting start")
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(
-                        ProxyState.Error,
-                        errorMessage = getString(R.string.error_no_active_profile),
-                        tunMode = TunMode.Vpn,
-                    )
-                )
-                stopSelf()
-                return@launch
-            }
-            ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Starting, tunMode = TunMode.Vpn))
-
-            if (runner.isRunning) {
-                runner.stop()
-            }
-
-            // 清理孤儿 mihomo（setsid 脱离进程组后 App 崩溃也不会带走 mihomo，需 pkill）
-            // 条件 hadRootPid || hasRoot：后者覆盖"ROOT 崩溃后 storage 被清但进程仍活"的冷启动；
-            // 无 root 设备两者均为 false，不触发 su。
+            var started = false
             val storage = PlatformStorage(this@MishkaTunService)
-            val hadRootPid = storage.getString(StorageKeys.ROOT_MIHOMO_PID, "").isNotEmpty()
-            val hasRoot = storage.getString(StorageKeys.HAS_ROOT, "false") == "true"
-            if (hadRootPid || hasRoot) {
-                // 同时清理 TUN 接口防止下次启动 sing-tun EEXIST（silent failure 源头）
-                val residualTun = storage.getString(StorageKeys.ROOT_TUN_DEVICE, RuntimeOverrideBuilder.DEFAULT_TUN_DEVICE)
-                RootHelper.cleanupOrphanedMihomo(tunDevice = residualTun)
-                // 孤儿进程已死，先把 provider 缓存回写 imported/，再删 runtime/
-                RootRuntimeCache.releaseAll(this@MishkaTunService, subscriptionRepository)
-                storage.putString(StorageKeys.ROOT_MIHOMO_PID, "")
-                storage.putString(StorageKeys.ROOT_MIHOMO_SECRET, "")
-                storage.putString(StorageKeys.ROOT_ACTIVE_SUBSCRIPTION_ID, "")
-            }
+            try {
+                if (!ProfileFileOps.hasValidConfig(this@MishkaTunService, subscriptionId)) {
+                    throw IllegalStateException(getString(R.string.error_no_active_profile))
+                }
+                ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Starting, tunMode = TunMode.Vpn))
+                runner.stop()
+                closeVpnResources()
 
-            // 加载用户 override 与运行时变换快照（后续 VpnService.Builder 和 mihomo 启动共用同一份）
-            val userOverride = overrideStore.load()
-            val viaProxy = storage.getString(StorageKeys.SUBSCRIPTION_UPDATE_VIA_PROXY, "true") == "true"
-            val transformPlan = try {
-                prepareRuntimeTransform(this@MishkaTunService, subscriptionId, subscriptionRepository, transformWriter)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to prepare subscription transform", e)
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(
-                        ProxyState.Error,
-                        errorMessage = getString(R.string.error_generic_start_failed, e.message ?: e.javaClass.simpleName),
-                        tunMode = TunMode.Vpn,
-                    )
+                // ROOT 孤儿仍可能持有路由；切回 VPN 前保留既有清理和缓存回写。
+                val hadRootPid = storage.getString(StorageKeys.ROOT_MIHOMO_PID, "").isNotEmpty()
+                val hasRoot = storage.getString(StorageKeys.HAS_ROOT, "false") == "true"
+                if (hadRootPid || hasRoot) {
+                    val residualTun = storage.getString(StorageKeys.ROOT_TUN_DEVICE, RuntimeOverrideBuilder.DEFAULT_TUN_DEVICE)
+                    RootHelper.cleanupOrphanedMihomo(tunDevice = residualTun)
+                    RootRuntimeCache.releaseAll(this@MishkaTunService, subscriptionRepository)
+                    storage.putString(StorageKeys.ROOT_MIHOMO_PID, "")
+                    storage.putString(StorageKeys.ROOT_MIHOMO_SECRET, "")
+                    storage.putString(StorageKeys.ROOT_ACTIVE_SUBSCRIPTION_ID, "")
+                }
+
+                val userOverride = overrideStore.load()
+                val viaProxy = storage.getString(StorageKeys.SUBSCRIPTION_UPDATE_VIA_PROXY, "true") == "true"
+                val transformPlan = prepareRuntimeTransform(
+                    this@MishkaTunService, subscriptionId, subscriptionRepository, transformWriter,
                 )
-                stopSelf()
-                return@launch
-            }
-
-            // 1. 建立 VPN 接口，获取 fd
-            val fd = try {
-                Builder().apply {
-                    addAddress(TUN_GATEWAY, TUN_SUBNET_PREFIX)
-                    setMtu(RuntimeOverrideBuilder.VPN_TUN_MTU)
-                    setSession("Mishka")
-                    setBlocking(false)
-
-                    val bypassPrivate = storage.getString(StorageKeys.VPN_BYPASS_PRIVATE_NETWORK, "true") == "true"
-                    if (bypassPrivate) {
-                        resources.getStringArray(R.array.bypass_private_route).forEach { cidr ->
-                            val parts = cidr.split("/")
-                            addRoute(parts[0], parts[1].toInt())
-                        }
-                        addRoute(TUN_DNS, 32)
+                ensureActive()
+                val ipv6 = storage.getString(StorageKeys.VPN_ALLOW_IPV6, "false") == "true"
+                platformBridge = VpnPlatformBridge(this@MishkaTunService, scope) { error ->
+                    Log.e(TAG, "VPN platform bridge failed", error)
+                    commands.trySend(
+                        VpnCommand(ACTION_DIED, generation = runGeneration, error = error.describe())
+                    )
+                }.also { it.start() }
+                val systemProxy = storage.getString(StorageKeys.VPN_SYSTEM_PROXY, "true") != "false"
+                val proxyAddress = if (systemProxy) {
+                    val fd = ProcessHelper.nativeCreateHttpListener()
+                    if (fd < 0) {
+                        // 独立 HTTP 入口不可用时不发布失效的系统代理。
+                        Log.w(TAG, "System HTTP listener unavailable, using TUN only")
+                        null
                     } else {
-                        addRoute("0.0.0.0", 0)
+                        httpListenerFd = fd
+                        val address = ProcessHelper.nativeHttpListenerAddress(fd)
+                        val port = ProcessHelper.nativeHttpListenerPort(fd)
+                        check(address != null && port in 1..65535) { "Invalid system HTTP listener address" }
+                        address to port
                     }
+                } else null
 
-                    val allowIpv6 = storage.getString(StorageKeys.VPN_ALLOW_IPV6, "false") == "true"
-                    if (allowIpv6) {
-                        addAddress(TUN_GATEWAY6, TUN_SUBNET_PREFIX6)
-                        if (bypassPrivate) {
-                            resources.getStringArray(R.array.bypass_private_route6).forEach { cidr ->
-                                val parts = cidr.split("/")
-                                addRoute(parts[0], parts[1].toInt())
-                            }
-                            addRoute(TUN_DNS6, 128)
-                        } else {
-                            addRoute("::", 0)
-                        }
-                    }
-
-                    val dnsHijacking = storage.getString(StorageKeys.VPN_DNS_HIJACKING, "true") == "true"
-                    if (dnsHijacking) {
-                        addDnsServer(TUN_DNS)
-                        if (allowIpv6) addDnsServer(TUN_DNS6)
-                    }
-
-                    val allowBypass = storage.getString(StorageKeys.VPN_ALLOW_BYPASS, "true") == "true"
-                    if (allowBypass) {
-                        allowBypass()
-                    }
-
-                    val proxyMode = storage.getString(StorageKeys.APP_PROXY_MODE, "AllowAll")
-                    val packages = storage.getStringSet(StorageKeys.APP_PROXY_PACKAGES, emptySet())
-
-                    // Mishka 自身保持排除，避免死循环
-                    when (proxyMode) {
-                        "AllowSelected" -> {
-                            val filtered = packages.filter { it != packageName }
-                            if (filtered.isEmpty()) {
-                                // 用户没选任何要代理的 app → 退化为全直连（等价 AllowAll + 排除 self）
-                                addDisallowedApplication(packageName)
-                            } else {
-                                filtered.forEach { pkg ->
-                                    try {
-                                        addAllowedApplication(pkg)
-                                    } catch (_: Exception) {
-                                    }
-                                }
-                                // AllowSelected 下 Mishka 不在 allow 列表内自然绕过 VPN（Android 默认行为）
-                            }
-                        }
-
-                        "DenySelected" -> {
-                            addDisallowedApplication(packageName)
-                            packages.forEach { pkg ->
-                                if (pkg != packageName) {
-                                    try {
-                                        addDisallowedApplication(pkg)
-                                    } catch (_: Exception) {
-                                    }
-                                }
-                            }
-                        }
-
-                        else -> {
-                            addDisallowedApplication(packageName)
-                        }
-                    }
-
-                    // 伪装为非计量网络，否则 Google Play 等应用在蜂窝下拒绝走 VPN
-                    setMetered(false)
-
-                    val systemProxy = storage.getString(StorageKeys.VPN_SYSTEM_PROXY, "true") != "false"
-                    if (systemProxy) {
-                        val port = userOverride.mixedPort
-                            ?: transformPlan.mixedPort
-                            ?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else 7890
-                        val localExclusions = if (bypassPrivate) HTTP_PROXY_LOCAL_LIST else emptyList()
-                        setHttpProxy(
-                            android.net.ProxyInfo.buildDirectProxy(
-                                "127.0.0.1",
-                                port,
-                                HTTP_PROXY_BLACK_LIST + localExclusions,
+                tunFd = establishVpn(storage, ipv6, proxyAddress)
+                    ?: throw IllegalStateException(getString(R.string.error_vpn_denied))
+                ensureActive()
+                clearCloseOnExec(tunFd)
+                val secret = ConfigGenerator.resolveSecret(this@MishkaTunService, userOverride, subscriptionId)
+                val extCtl = userOverride.resolveExternalController()
+                val overrideFile = RuntimeOverrideBuilder.buildAndWriteForRun(
+                    context = this@MishkaTunService,
+                    userOverride = userOverride,
+                    tunFd = tunFd,
+                    tunMode = TunMode.Vpn,
+                    subscriptionUpdateViaProxy = viaProxy,
+                    subscriptionMixedPort = transformPlan.mixedPort,
+                )
+                val gateway = buildList {
+                    add("${RuntimeOverrideBuilder.VPN_GATEWAY}/${RuntimeOverrideBuilder.VPN_PREFIX}")
+                    if (ipv6) add("${RuntimeOverrideBuilder.VPN_GATEWAY6}/${RuntimeOverrideBuilder.VPN_PREFIX6}")
+                }.joinToString(",")
+                val success = runner.start(
+                    subscriptionId = subscriptionId,
+                    useRoot = false,
+                    overrideJsonPath = overrideFile.absolutePath,
+                    secret = secret,
+                    externalController = extCtl,
+                    ageSecretKey = transformPlan.ageSecretKey,
+                    transformPath = transformPlan.transformPath,
+                    preferTransformMixedPort = transformPlan.transformPath != null && viaProxy && userOverride.mixedPort == null,
+                    vpnGateway = gateway,
+                    vpnHttpFd = httpListenerFd,
+                    vpnPlatformSocket = requireNotNull(platformBridge).socketName,
+                )
+                if (!success) throw IllegalStateException(runner.errorMessage.ifBlank { getString(R.string.error_start_failed) })
+                ensureActive()
+                val published = synchronized(lifecycleLock) {
+                    if (destroyed) false else {
+                        ProxyServiceBridge.updateState(
+                            ProxyServiceStatus(
+                                ProxyState.Running,
+                                secret = runner.secret,
+                                externalController = extCtl,
+                                tunMode = TunMode.Vpn,
+                                startTime = Clock.System.now().toEpochMilliseconds(),
+                                mihomoPid = runner.pid,
                             )
                         )
+                        storage.putString(StorageKeys.SERVICE_WAS_RUNNING, "true")
+                        true
                     }
-                }.establish()?.detachFd()
+                }
+                if (!published) throw CancellationException("VPN Service destroyed before startup completed")
+                dynamicNotification.startOrFallbackStatic(storage)
+                val workDir = subscriptionId?.let { ProfileFileOps.getSubscriptionDir(this@MishkaTunService, it) }
+                    ?: ConfigGenerator.getWorkDir(this@MishkaTunService)
+                startProcessMonitor(workDir, runGeneration)
+                started = true
+                Log.i(TAG, "VPN running, fd=$tunFd")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to establish VPN", e)
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(ProxyState.Error, errorMessage = getString(R.string.error_vpn_failed, e.message ?: ""))
-                )
-                stopSelf()
-                return@launch
-            }
-
-            if (fd == null || fd < 0) {
-                Log.e(TAG, "VPN establish returned null (permission denied?)")
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(ProxyState.Error, errorMessage = getString(R.string.error_vpn_denied))
-                )
-                stopSelf()
-                return@launch
-            }
-
-            tunFd = fd
-            Log.i(TAG, "VPN established, fd=$fd")
-
-            // 清除 O_CLOEXEC 标志，使 fd 能被子进程（mihomo）继承
-            // Android 默认给 fd 设置 O_CLOEXEC，fork+exec 时会关闭，导致 mihomo 拿不到 fd
-            // 清除失败视为致命：继续启动必然 silent failure（mihomo TUN init 拿到无效 fd 仍不会退出）
-            try {
-                val pfd = ParcelFileDescriptor.adoptFd(fd)
-                val flags = Os.fcntlInt(pfd.fileDescriptor, OsConstants.F_GETFD, 0)
-                Log.i(TAG, "fd=$fd flags before: $flags")
-                Os.fcntlInt(pfd.fileDescriptor, OsConstants.F_SETFD, flags and OsConstants.FD_CLOEXEC.inv())
-                val flagsAfter = Os.fcntlInt(pfd.fileDescriptor, OsConstants.F_GETFD, 0)
-                Log.i(TAG, "fd=$fd flags after: $flagsAfter")
-                pfd.detachFd() // 释放所有权，防止 GC 关闭 fd
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to clear O_CLOEXEC on fd=$fd, aborting: $e")
-                closeTunFd()
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(
-                        ProxyState.Error,
-                        errorMessage = getString(R.string.error_fd_setup_failed, e.message ?: e.javaClass.simpleName),
-                        tunMode = TunMode.Vpn,
+                Log.e(TAG, "VPN startup failed", e)
+                commands.trySend(
+                    VpnCommand(
+                        ACTION_DIED,
+                        generation = runGeneration,
+                        error = getString(R.string.error_generic_start_failed, e.describe()),
                     )
                 )
-                stopSelf()
-                return@launch
+            } finally {
+                if (!started) {
+                    dynamicNotification.stop()
+                    try {
+                        runner.stop()
+                        closeVpnResources()
+                        storage.putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "VPN startup cleanup is still pending", e)
+                        commands.trySend(VpnCommand(ACTION_DIED, generation = runGeneration, error = e.describe()))
+                    }
+                }
             }
+        }
+    }
 
-            // 2. 装配 override.run.json（用户设置 + 运行时字段 tun.file-descriptor 等）
-            // secret / extCtl 走 CLI flag 不进 JSON
-            val secret = ConfigGenerator.resolveSecret(this@MishkaTunService, userOverride, subscriptionId)
-            val extCtl = userOverride.resolveExternalController()
-            val overrideFile = RuntimeOverrideBuilder.buildAndWriteForRun(
-                context = this@MishkaTunService,
-                userOverride = userOverride,
-                tunFd = fd,
-                tunMode = TunMode.Vpn,
-                subscriptionUpdateViaProxy = viaProxy,
-                subscriptionMixedPort = transformPlan.mixedPort,
-            )
-
-            // 3. 启动 mihomo 核心
-            // age 加密订阅：config 加密落盘，密钥与覆写选择来自同一份 imported DB 快照。
-            val success = runner.start(
-                subscriptionId = subscriptionId,
-                useRoot = false,
-                overrideJsonPath = overrideFile.absolutePath,
-                secret = secret,
-                externalController = extCtl,
-                ageSecretKey = transformPlan.ageSecretKey,
-                transformPath = transformPlan.transformPath,
-                preferTransformMixedPort = transformPlan.transformPath != null && viaProxy && userOverride.mixedPort == null,
-            )
-            if (!success) {
-                val errorMsg = runner.errorMessage.ifBlank { getString(R.string.error_start_failed) }
-                Log.e(TAG, "Failed to start mihomo: $errorMsg")
-                ProxyServiceBridge.updateState(
-                    ProxyServiceStatus(ProxyState.Error, errorMessage = errorMsg)
-                )
-                closeTunFd()
-                stopSelf()
-                return@launch
+    private fun establishVpn(
+        storage: PlatformStorage,
+        ipv6: Boolean,
+        proxyAddress: Pair<String, Int>?,
+    ): Int? = Builder().apply {
+        addAddress(RuntimeOverrideBuilder.VPN_GATEWAY, RuntimeOverrideBuilder.VPN_PREFIX)
+        setMtu(RuntimeOverrideBuilder.VPN_TUN_MTU)
+        setSession("Mishka")
+        setBlocking(false)
+        val bypassPrivate = storage.getString(StorageKeys.VPN_BYPASS_PRIVATE_NETWORK, "true") == "true"
+        if (bypassPrivate) {
+            resources.getStringArray(R.array.bypass_private_route).forEach { cidr ->
+                val (address, prefix) = cidr.split("/")
+                addRoute(address, prefix.toInt())
             }
-
-            // 4. 更新通知和状态
-            ProxyServiceBridge.updateState(
-                ProxyServiceStatus(
-                    ProxyState.Running,
-                    secret = runner.secret,
-                    externalController = extCtl,
-                    tunMode = TunMode.Vpn,
-                    startTime = Clock.System.now().toEpochMilliseconds(),
-                    mihomoPid = runner.pid
-                )
-            )
-
-            dynamicNotification.startOrFallbackStatic(storage)
-            // 记录运行状态，用于开机自启判断
-            PlatformStorage(this@MishkaTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "true")
-            Log.i(TAG, "Proxy running, fd=$fd")
-
-            // 5. 启动进程存活监测
-            val monitorWorkDir = if (subscriptionId != null) {
-                ProfileFileOps.getSubscriptionDir(this@MishkaTunService, subscriptionId)
+            addRoute(RuntimeOverrideBuilder.VPN_DNS, 32)
+        } else {
+            addRoute("0.0.0.0", 0)
+        }
+        if (ipv6) {
+            addAddress(RuntimeOverrideBuilder.VPN_GATEWAY6, RuntimeOverrideBuilder.VPN_PREFIX6)
+            if (bypassPrivate) {
+                resources.getStringArray(R.array.bypass_private_route6).forEach { cidr ->
+                    val (address, prefix) = cidr.split("/")
+                    addRoute(address, prefix.toInt())
+                }
+                addRoute(RuntimeOverrideBuilder.VPN_DNS6, 128)
             } else {
-                ConfigGenerator.getWorkDir(this@MishkaTunService)
+                addRoute("::", 0)
             }
-            startProcessMonitor(monitorWorkDir)
+        }
+        // 开关控制的是额外 DNS 的劫持范围，虚拟 DNS 本身始终对应用可用。
+        addDnsServer(RuntimeOverrideBuilder.VPN_DNS)
+        if (ipv6) addDnsServer(RuntimeOverrideBuilder.VPN_DNS6)
+        if (storage.getString(StorageKeys.VPN_ALLOW_BYPASS, "true") == "true") allowBypass()
+
+        val packages = storage.getStringSet(StorageKeys.APP_PROXY_PACKAGES, emptySet())
+        when (storage.getString(StorageKeys.APP_PROXY_MODE, "AllowAll")) {
+            "AllowSelected" -> {
+                // self 必须绕过：空/已卸载名单不能退化为默认全允许。
+                val installed = packages.filter { pkg ->
+                    try {
+                        packageManager.getApplicationInfo(pkg, 0).uid != android.os.Process.myUid()
+                    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                        false
+                    }
+                }
+                check(installed.isNotEmpty()) { getString(R.string.error_vpn_no_selected_apps) }
+                installed.forEach { addAllowedApplication(it) }
+            }
+            "DenySelected" -> {
+                addDisallowedApplication(packageName)
+                packages.filter { it != packageName }.forEach { pkg ->
+                    try {
+                        addDisallowedApplication(pkg)
+                    } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+                        // 用户可能在配置名单后卸载应用。
+                    }
+                }
+            }
+            else -> addDisallowedApplication(packageName)
+        }
+        setMetered(false)
+        proxyAddress?.let { (address, port) ->
+            val exclusions = HTTP_PROXY_BLACK_LIST + if (bypassPrivate) HTTP_PROXY_LOCAL_LIST else emptyList()
+            setHttpProxy(android.net.ProxyInfo.buildDirectProxy(address, port, exclusions))
+        }
+    }.establish()?.detachFd()
+
+    private fun clearCloseOnExec(fd: Int) {
+        val descriptor = ParcelFileDescriptor.adoptFd(fd)
+        try {
+            val flags = Os.fcntlInt(descriptor.fileDescriptor, OsConstants.F_GETFD, 0)
+            Os.fcntlInt(descriptor.fileDescriptor, OsConstants.F_SETFD, flags and OsConstants.FD_CLOEXEC.inv())
+        } finally {
+            descriptor.detachFd()
         }
     }
 
     @SuppressLint("StringFormatInvalid")
-    private fun startProcessMonitor(workDir: File) {
+    private fun startProcessMonitor(workDir: File, runGeneration: Long) {
         monitorJob?.cancel()
         monitorJob = scope.launch {
             // 等待一段时间再开始监测，避免与 waitForReady 重叠
@@ -396,92 +393,100 @@ class MishkaTunService : VpnService() {
             } else {
                 getString(R.string.error_mihomo_exited)
             }
-            Log.e(TAG, "mihomo process died unexpectedly: $errorMsg")
-            ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Error, errorMessage = errorMsg))
-            closeTunFd()
-            PlatformStorage(this@MishkaTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            commands.trySend(VpnCommand(ACTION_DIED, generation = runGeneration, error = errorMsg))
         }
     }
 
-    private fun restartProxy(subscriptionId: String?) {
+    private suspend fun restartProxy(subscriptionId: String?, startId: Int) {
         Log.i(TAG, "Restarting proxy...")
-        monitorJob?.cancel()
+        generation++
+        monitorJob?.cancelAndJoin()
         ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
         dynamicNotification.stop()
-        scope.launch {
-            // 先让进行中的启动协程收敛，否则下面的 startProxy 会被幂等检查挡掉
-            startJob?.cancelAndJoin()
-            runner.stop()
-            closeTunFd()
-            withContext(Dispatchers.Main) {
-                startProxy(subscriptionId)
-            }
-        }
+        startJob?.cancelAndJoin()
+        runner.stop()
+        closeVpnResources()
+        startProxy(subscriptionId, startId)
     }
 
-    private fun stopProxy() {
-        Log.i(TAG, "Stopping proxy...")
-        monitorJob?.cancel()
-        ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
+    private suspend fun stopProxy(startId: Int = 0, error: String? = null) {
+        generation++
+        monitorJob?.cancelAndJoin()
+        ProxyServiceBridge.updateState(
+            ProxyServiceStatus(
+                state = if (error == null) ProxyState.Stopping else ProxyState.Error,
+                errorMessage = error.orEmpty(),
+                tunMode = TunMode.Vpn,
+            )
+        )
         dynamicNotification.stop()
-        scope.launch {
-            // 用户在启动过程中按停止：先中止启动协程，避免它继续把状态写回 Running
-            startJob?.cancelAndJoin()
-            runner.stop()
-            closeTunFd()
-            PlatformStorage(this@MishkaTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
-            ProxyServiceBridge.markStopped(TunMode.Vpn)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
+        startJob?.cancelAndJoin()
+        runner.stop()
+        closeVpnResources()
+        PlatformStorage(this).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
+        ProxyServiceBridge.markStoppedUnlessError(TunMode.Vpn)
+        // 新的 START 已投递时不能终止承载它的 Service。
+        if (startId > 0) stopSelfResult(startId) else stopSelf()
     }
 
-    @SuppressLint("DiscouragedPrivateApi")
-    private fun closeTunFd() {
-        if (tunFd >= 0) {
-            try {
-                val fileDescriptor = FileDescriptor()
-                val field = FileDescriptor::class.java.getDeclaredField("descriptor")
-                field.isAccessible = true
-                field.setInt(fileDescriptor, tunFd)
-                Os.close(fileDescriptor)
-                Log.i(TAG, "Closed tun fd=$tunFd")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to close tun fd=$tunFd: $e")
-            }
-            tunFd = -1
+    private fun closeVpnResources() {
+        platformBridge?.close()
+        platformBridge = null
+        closeOwnedFd(tunFd)
+        tunFd = -1
+        closeOwnedFd(httpListenerFd)
+        httpListenerFd = -1
+    }
+
+    private fun closeOwnedFd(fd: Int) {
+        if (fd < 0) return
+        try {
+            ParcelFileDescriptor.adoptFd(fd).close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to close VPN fd=$fd", e)
         }
     }
 
     override fun onDestroy() {
-        notificationRefreshJob?.cancel()
-        monitorJob?.cancel()
-        dynamicNotification.stop()
-        runner.stop()
-        closeTunFd()
-        PlatformStorage(this).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
-        ProxyServiceBridge.markStoppedUnlessError(TunMode.Vpn)
+        synchronized(lifecycleLock) { destroyed = true }
+        foregroundReady = false
+        val serviceJob = scope.coroutineContext[Job]
+        commands.close()
         scope.cancel()
+        dynamicNotification.stop()
+        // 后继实例必须等待这一代完成收尾，不能在旧核心仍占端口/持 fd 时 fork 新核心。
+        val teardown = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        teardown.launch {
+            serviceJob?.join()
+            lifetime.awaitPredecessor()
+            while (true) {
+                try {
+                    runner.stop()
+                    closeVpnResources()
+                    break
+                } catch (e: Exception) {
+                    // SIGKILL 后尚未回收也仍持有子进程；不能谎报停止或放行下一代。
+                    Log.e(TAG, "VPN cleanup is still pending", e)
+                    ProxyServiceBridge.updateState(
+                        ProxyServiceStatus(ProxyState.Error, errorMessage = e.describe(), tunMode = TunMode.Vpn)
+                    )
+                    delay(250)
+                }
+            }
+            PlatformStorage(this@MishkaTunService).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
+            foregroundFailure?.let(ProxyServiceBridge::updateState)
+                ?: ProxyServiceBridge.markStoppedUnlessError(TunMode.Vpn)
+            lifetime.finish()
+            teardown.cancel()
+            Log.i(TAG, "VPN Service resources released")
+        }
         Log.i(TAG, "MishkaTunService destroyed")
         super.onDestroy()
     }
 
     override fun onRevoke() {
         Log.i(TAG, "VPN revoked by system")
-        monitorJob?.cancel()
-        ProxyServiceBridge.updateState(ProxyServiceStatus(ProxyState.Stopping, tunMode = TunMode.Vpn))
-        dynamicNotification.stop()
-        PlatformStorage(this).putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
-        scope.launch {
-            startJob?.cancelAndJoin()
-            runner.stop()
-            closeTunFd()
-            ProxyServiceBridge.markStopped(TunMode.Vpn)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
+        commands.trySend(VpnCommand(ACTION_STOP, startId = latestStartId))
     }
 
     companion object {
@@ -492,13 +497,7 @@ class MishkaTunService : VpnService() {
         const val ACTION_START = "top.yukonga.mishka.START"
         const val ACTION_STOP = "top.yukonga.mishka.STOP"
         const val ACTION_RESTART = "top.yukonga.mishka.RESTART"
-
-        private const val TUN_SUBNET_PREFIX = 30
-        private const val TUN_GATEWAY = "198.18.0.1"
-        private const val TUN_GATEWAY6 = "fdfe:dcba:9876::1"
-        private const val TUN_SUBNET_PREFIX6 = 126
-        private const val TUN_DNS = "198.18.0.2"
-        private const val TUN_DNS6 = "fdfe:dcba:9876::2"
+        private const val ACTION_DIED = "process-died"
 
         private val HTTP_PROXY_LOCAL_LIST = listOf(
             "localhost", "*.local", "127.*", "10.*", "172.16.*",
