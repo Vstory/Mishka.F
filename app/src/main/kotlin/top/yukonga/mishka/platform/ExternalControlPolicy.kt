@@ -11,6 +11,8 @@ import android.content.Context
  */
 object ExternalControlPolicy {
 
-    fun isAllowed(context: Context): Boolean =
-        PlatformStorage(context).getString(StorageKeys.EXTERNAL_CONTROL_ALLOWED, "false") == "true"
+    fun isAllowed(context: Context): Boolean = isAllowed(PlatformStorage(context))
+
+    fun isAllowed(storage: PlatformStorage): Boolean =
+        storage.getString(StorageKeys.EXTERNAL_CONTROL_ALLOWED, "false") == "true"
 }

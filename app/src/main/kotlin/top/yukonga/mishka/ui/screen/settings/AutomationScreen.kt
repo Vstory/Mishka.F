@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -22,15 +19,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import top.yukonga.mishka.R
-import top.yukonga.mishka.platform.PlatformStorage
-import top.yukonga.mishka.platform.StorageKeys
 import top.yukonga.mishka.ui.component.AdaptiveTopAppBar
 import top.yukonga.mishka.ui.component.CardItem
 import top.yukonga.mishka.ui.component.blur.BlurredBar
 import top.yukonga.mishka.ui.component.blur.rememberBlurBackdrop
 import top.yukonga.mishka.ui.component.groupedCardItems
 import top.yukonga.mishka.ui.util.horizontalCutoutPadding
+import top.yukonga.mishka.viewmodel.AutomationViewModel
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -47,13 +44,11 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun AutomationScreen(
-    storage: PlatformStorage?,
+    viewModel: AutomationViewModel,
     onBack: () -> Unit = {},
 ) {
+    val uiState by viewModel.state.collectAsStateWithLifecycle()
     val scrollBehavior = MiuixScrollBehavior()
-    var allowed by remember {
-        mutableStateOf(storage?.getString(StorageKeys.EXTERNAL_CONTROL_ALLOWED, "false") == "true")
-    }
 
     val backdrop = rememberBlurBackdrop()
     val blurActive = backdrop != null
@@ -107,14 +102,8 @@ fun AutomationScreen(
                         SwitchPreference(
                             title = stringResource(R.string.automation_allow_external),
                             summary = stringResource(R.string.automation_allow_external_summary),
-                            checked = allowed,
-                            onCheckedChange = { checked ->
-                                storage?.putString(
-                                    StorageKeys.EXTERNAL_CONTROL_ALLOWED,
-                                    checked.toString(),
-                                )
-                                allowed = checked
-                            },
+                            checked = uiState.allowed,
+                            onCheckedChange = viewModel::setAllowed,
                         )
                     },
                 ),
