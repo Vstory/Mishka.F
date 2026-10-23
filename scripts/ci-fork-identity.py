@@ -35,16 +35,18 @@ PLATFORM = f"{KOTLIN_DIR}/platform"
 DEFAULT_APP_ID = "top.yukonga.mishka.fork"
 DEFAULT_LABEL = "Mishka.F"
 
-# fork 专属取值。全部与上游错开：上游原版照旧用 "Mishka" / 0x01000000 / 2024 / 7999 /
-# 7895 / 1053 / 7890 / 9090 / 2022 / 9000。
+# fork 专属取值。全部与上游错开：上游 RootTproxyApplier 用 0x01000000 / 2024 / 7999，
+# RootDnsApplier 用 0x02000000 / 2025 / 7998；另有 "Mishka" / 7895 / 7890 / 9090 / 2022 / 9000。
 TUN_DEVICE = "MishkaF"
 NS = "mishkafork"  # 内核态命名空间：chain 名与 xt_comment 标签共用的前缀
-MARK = "0x02000000"
-FWMARK_TABLE = "2025"
+MARK = "0x04000000"
+FWMARK_TABLE = "2026"
 PRIORITY_FWMARK = "7997"
+DNS_MARK = "0x08000000"
+DNS_TABLE = "2027"
+DNS_PRIORITY = "7996"
 TETHER_PRIORITIES = ("8010", "8011", "8012", "8013")
 TPROXY_PORT = "7896"
-DNS_PORT = "1054"
 MIXED_PORT = "7891"
 EXT_CTL = "127.0.0.1:9091"
 ROOT_TUN_TABLE = "2023"
@@ -230,12 +232,6 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
         ),
         (
             f"{SERVICE}/RootTproxyApplier.kt",
-            "internal const val DNS_PORT = 1053",
-            f"internal const val DNS_PORT = {DNS_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
             "internal const val TPROXY_PORT = RootTetherHijacker.TPROXY_PORT  // 7895",
             f"internal const val TPROXY_PORT = RootTetherHijacker.TPROXY_PORT  // {TPROXY_PORT}",
             1,
@@ -259,15 +255,63 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             1,
         ),
         (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            'private const val CHAIN_DNS_PRE = "mishka_dns_pre"',
-            f'private const val CHAIN_DNS_PRE = "{NS}_dns_pre"',
+            f"{SERVICE}/RootDnsApplier.kt",
+            'internal const val MARK = "0x02000000"',
+            f'internal const val MARK = "{DNS_MARK}"',
             1,
         ),
         (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            'private const val CHAIN_DNS_OUT = "mishka_dns_out"',
-            f'private const val CHAIN_DNS_OUT = "{NS}_dns_out"',
+            f"{SERVICE}/RootDnsApplier.kt",
+            'internal const val MASK = "0x02000000"',
+            f'internal const val MASK = "{DNS_MARK}"',
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            "private const val TABLE = 2025",
+            f"private const val TABLE = {DNS_TABLE}",
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            "private const val PRIORITY = 7998",
+            f"private const val PRIORITY = {DNS_PRIORITY}",
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            'private const val CHAIN_PRE = "mishka_rootdns_pre"',
+            f'private const val CHAIN_PRE = "{NS}_rootdns_pre"',
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            'private const val CHAIN_OUT = "mishka_rootdns_out"',
+            f'private const val CHAIN_OUT = "{NS}_rootdns_out"',
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            'private const val CHAIN_INPUT = "mishka_rootdns_input"',
+            f'private const val CHAIN_INPUT = "{NS}_rootdns_input"',
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            'private const val CHAIN_INPUT_TEMP = "mishka_rootdns_input_tmp"',
+            f'private const val CHAIN_INPUT_TEMP = "{NS}_rootdns_input_tmp"',
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            'private const val COMMENT_PREFIX = "mishka:dns:"',
+            f'private const val COMMENT_PREFIX = "{NS}:dns:"',
+            1,
+        ),
+        (
+            f"{SERVICE}/RootDnsApplier.kt",
+            "mishka:tproxy:dns-",
+            f"{NS}:tproxy:dns-",
             1,
         ),
         (
@@ -294,12 +338,6 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             f"{SERVICE}/RuntimeOverrideBuilder.kt",
             "internal const val DEFAULT_MIXED_PORT = 7890",
             f"internal const val DEFAULT_MIXED_PORT = {MIXED_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/MishkaTunService.kt",
-            "?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else 7890",
-            f"?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else {MIXED_PORT}",
             1,
         ),
         (
@@ -370,24 +408,6 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             1,
         ),
         (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "dns.listen=0.0.0.0:1053",
-            f"dns.listen=0.0.0.0:{DNS_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "`mishka_tproxy_pre` / `mishka_tproxy_out`",
-            f"`{NS}_tproxy_pre` / `{NS}_tproxy_out`",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "priority 7999 ip rule",
-            f"priority {PRIORITY_FWMARK} ip rule",
-            1,
-        ),
-        (
             f"{SERVICE}/RuntimeOverrideBuilder.kt",
             "// sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移",
             "// sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移"
@@ -412,18 +432,6 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             f'/** 生成 `-m comment --comment "{NS}:tproxy:<label>"` 片段；追加到 iptables 命令末尾。 */',
             1,
         ),
-        (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            "`0.0.0.0:1053`",
-            f"`0.0.0.0:{DNS_PORT}`",
-            1,
-        ),
-        (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            "--to-ports 1053",
-            f"--to-ports {DNS_PORT}",
-            1,
-        ),
         *[
             (f"app/src/main/res/values{suffix}/strings.xml", "127.0.0.1:9090", EXT_CTL, 1)
             for suffix in ("", "-ru", "-zh-rCN", "-zh-rTW")
@@ -437,14 +445,15 @@ FORBIDDEN = [
     "${context.packageName}.",
     "mishka_tproxy",
     "mishka_tether",
-    "mishka_dns_",
+    "mishka_rootdns",
     "mishka_probe_",
     "mishka:tproxy:",
     "mishka:tether:",
+    "mishka:dns:",
     "-f libmihomo_runner.so",
     "0x01000000",
+    "0x02000000",
     "7895",
-    "1053",
     'ROOT_TUN_DEVICE, "Mishka"',
     'DEFAULT_TUN_DEVICE = "Mishka"',
     'APP_NAME = "Mishka"',
@@ -517,7 +526,8 @@ def main() -> int:
 
     print(
         f"已改写为 fork 身份：appId={args.app_id} label={args.label} "
-        f"tun={TUN_DEVICE} 内核态前缀={NS} tproxy={TPROXY_PORT} dns={DNS_PORT} "
+        f"tun={TUN_DEVICE} 内核态前缀={NS} tproxy={TPROXY_PORT} "
+        f"dnsMark={DNS_MARK} dnsTable={DNS_TABLE} "
         f"mixed={MIXED_PORT} extCtl={EXT_CTL}（共 {len(edits)} 项，仅工作区，不入库）"
     )
     return 0
