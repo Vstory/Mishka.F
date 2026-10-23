@@ -87,6 +87,7 @@ import top.yukonga.mishka.ui.screen.proxy.ProxyScreen
 import top.yukonga.mishka.ui.screen.settings.AboutScreen
 import top.yukonga.mishka.ui.screen.settings.AppProxyScreen
 import top.yukonga.mishka.ui.screen.settings.BackupRestoreScreen
+import top.yukonga.mishka.ui.screen.settings.AutomationScreen
 import top.yukonga.mishka.ui.screen.settings.ExternalControlScreen
 import top.yukonga.mishka.ui.screen.settings.FileManagerEditorScreen
 import top.yukonga.mishka.ui.screen.settings.FileManagerScreen
@@ -484,6 +485,12 @@ fun AppNavigation(
                     )
                 }
             }
+            entry<Route.Automation>(swipeDismiss = swipeDismiss) {
+                AutomationScreen(
+                    storage = storage,
+                    onBack = { navigator.pop() },
+                )
+            }
             entry<Route.BackupRestore>(swipeDismiss = swipeDismiss) {
                 if (backupViewModel != null && storage != null) {
                     BackupRestoreScreen(
@@ -605,6 +612,7 @@ private fun MainPage(
                     onNavigateNetworkSettings = { navigator.push(Route.NetworkSettings) },
                     onNavigateMetaSettings = { navigator.push(Route.MetaSettings) },
                     onNavigateExternalControl = { navigator.push(Route.ExternalControl) },
+                    onNavigateAutomation = { navigator.push(Route.Automation) },
                     onNavigateAppProxy = { navigator.push(Route.AppProxy) },
                     onNavigateWifiPolicy = { navigator.push(Route.WifiPolicy) },
                     onNavigateThemeSettings = { navigator.push(Route.ThemeSettings) },

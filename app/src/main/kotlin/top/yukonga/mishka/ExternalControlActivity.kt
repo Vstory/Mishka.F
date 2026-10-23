@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import top.yukonga.mishka.platform.ExternalControlPolicy
 import top.yukonga.mishka.platform.ExternalProxyAction
 import top.yukonga.mishka.platform.ExternalProxyOutcome
 import top.yukonga.mishka.platform.ProxyServiceController
@@ -21,6 +22,12 @@ class ExternalControlActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 静默拒绝：不弹提示，避免被调用方轮询时反复打扰；调用方靠 CANCELED 自知失败
+        if (!ExternalControlPolicy.isAllowed(this)) {
+            setResult(RESULT_CANCELED)
+            finish()
+            return
+        }
         overrideTransition()
         when (intent?.action) {
             ACTION_START_PROXY -> controlProxy(ExternalProxyAction.Start)
