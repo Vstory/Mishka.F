@@ -297,12 +297,6 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             1,
         ),
         (
-            f"{SERVICE}/MishkaTunService.kt",
-            "?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else 7890",
-            f"?: if (viaProxy) RuntimeOverrideBuilder.DEFAULT_MIXED_PORT else {MIXED_PORT}",
-            1,
-        ),
-        (
             f"{SERVICE}/MihomoRunner.kt",
             'var externalController: String = "127.0.0.1:9090"',
             f'var externalController: String = "{EXT_CTL}"',
