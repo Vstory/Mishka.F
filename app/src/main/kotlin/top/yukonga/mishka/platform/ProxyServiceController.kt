@@ -77,6 +77,16 @@ class ProxyServiceController(private val context: Context) {
 
     fun start(subscriptionId: String? = null) {
         val id = resolveStartSubscriptionId(subscriptionId) ?: return
+        startValidated(id)
+    }
+
+    fun restart(subscriptionId: String? = null) {
+        val id = resolveStartSubscriptionId(subscriptionId) ?: return
+        restartValidated(id)
+    }
+
+    /** [id] 已过 [resolveStartSubscriptionId]，别再校验一次 —— 那是一次主线程磁盘 stat。 */
+    private fun startValidated(id: String) {
         val mode = getTunMode()
         val intent = buildServiceIntent(mode, Op.Start).apply {
             putExtra(EXTRA_SUBSCRIPTION_ID, id)
@@ -84,8 +94,7 @@ class ProxyServiceController(private val context: Context) {
         context.startForegroundService(intent)
     }
 
-    fun restart(subscriptionId: String? = null) {
-        val id = resolveStartSubscriptionId(subscriptionId) ?: return
+    private fun restartValidated(id: String) {
         // 优先读 bridge：代理运行中时它反映实际 Service；否则读 storage（用户最新选择）
         val mode = activeModeOrStored()
         val intent = buildServiceIntent(mode, Op.Restart).apply {
@@ -119,27 +128,45 @@ class ProxyServiceController(private val context: Context) {
                 return ExternalProxyOutcome.Stopped
             }
 
+            // START 只认 bridge：真的没跑时它内部还要 attach 复用存活进程，这里提前判活会挡掉那条路径
             ExternalProxyAction.Start ->
                 if (running) return ExternalProxyOutcome.AlreadyRunning
 
             ExternalProxyAction.Toggle ->
-                if (running) {
+                if (running || rootProcessLikelyAlive()) {
                     stop()
                     return ExternalProxyOutcome.Stopped
                 }
 
-            // 未运行不顺手拉起：界面上的重启按钮同样只在运行中出现，外部入口保持同一语义
+            // 未运行不顺手拉起：界面上的重启按钮同样只在运行中出现，外部入口保持同一语义。
+            // ROOT 残留进程例外：app 进程死过一轮后 bridge 停在 Stopped 而 mihomo 仍在跑，
+            // 此时重启才是调用方要的，判 NotRunning 会让这个残留进程彻底无人处理
             ExternalProxyAction.Restart ->
-                if (!running) return ExternalProxyOutcome.NotRunning
+                if (!running && !rootProcessLikelyAlive()) return ExternalProxyOutcome.NotRunning
         }
         val id = resolveStartSubscriptionId() ?: return ExternalProxyOutcome.NoSubscription
         if (!hasVpnPermission()) return ExternalProxyOutcome.NeedVpnPermission(id)
         if (action == ExternalProxyAction.Restart) {
-            restart(id)
+            restartValidated(id)
             return ExternalProxyOutcome.Restarted
         }
-        start(id)
+        startValidated(id)
         return ExternalProxyOutcome.Started
+    }
+
+    /**
+     * ROOT 模式下 bridge 的 Stopped 不代表没在跑：app 进程被杀过时 root mihomo 仍在运行，bridge
+     * 回到 Stopped。只看 bridge 会让 TOGGLE 又拉起一次而不是关掉它。
+     *
+     * 判据与 [verifyAndSyncState] 的 attach 前置一致（同一 boot session + 持久化 PID 非空）：
+     * 设备重启会杀掉 root 进程，但 PID 字符串还留在 storage 里，只凭它非空会把重启后的首次
+     * TOGGLE 误判成「在跑」。真正的存活确认在 Service 的 attach 三重校验里，这里只做启发式。
+     */
+    private fun rootProcessLikelyAlive(): Boolean {
+        if (getTunMode() == TunMode.Vpn) return false
+        if (storage.getString(StorageKeys.SERVICE_WAS_RUNNING, "false") != "true") return false
+        if (storage.getString(StorageKeys.ROOT_MIHOMO_PID, "").isEmpty()) return false
+        return !BootSession.hasRebootedSince(context, storage)
     }
 
     /**

@@ -54,6 +54,8 @@
 
 Tasker、快捷方式、adb 等外部工具可经 intent 启停代理，或用深链导入订阅。包名以实际安装的为准（默认 `top.yukonga.mishka`）。
 
+**默认关闭**：需在 设置 → 自动化 打开「允许外部应用控制」，否则下面这些 intent 一律静默返回 `RESULT_CANCELED`（不弹提示，避免被调用方轮询时反复打扰）。开关只作用于四个导出 action —— 磁贴、通知等用户主动操作的入口不经过它，关掉也不受影响。
+
 - **启动 / 停止 / 切换 / 重启代理** —— 向 `ExternalControlActivity` 发送显式 intent，action 取以下之一：
   - `top.yukonga.mishka.action.START_PROXY`
   - `top.yukonga.mishka.action.STOP_PROXY`

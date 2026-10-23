@@ -2,7 +2,9 @@ package top.yukonga.mishka
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import top.yukonga.mishka.platform.ExternalControlPolicy
 import top.yukonga.mishka.platform.ExternalProxyAction
 import top.yukonga.mishka.platform.ExternalProxyOutcome
 import top.yukonga.mishka.platform.ProxyServiceController
@@ -20,8 +22,13 @@ class ExternalControlActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0)
+        // 静默拒绝：不弹提示，避免被调用方轮询时反复打扰；调用方靠 CANCELED 自知失败
+        if (!ExternalControlPolicy.isAllowed(this)) {
+            setResult(RESULT_CANCELED)
+            finish()
+            return
+        }
+        overrideTransition()
         when (intent?.action) {
             ACTION_START_PROXY -> controlProxy(ExternalProxyAction.Start)
             ACTION_STOP_PROXY -> controlProxy(ExternalProxyAction.Stop)
@@ -33,8 +40,18 @@ class ExternalControlActivity : Activity() {
 
     override fun finish() {
         super.finish()
-        @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0)
+        overrideTransition()
+    }
+
+    /** 出入都不放转场：一次自动化请求不该被放大成看得见的切换。 */
+    private fun overrideTransition() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        } else {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
     }
 
     /**
@@ -42,7 +59,8 @@ class ExternalControlActivity : Activity() {
      * 直拉 Service 会绕过 active 订阅与 config.yaml 落盘的校验。
      */
     private fun controlProxy(action: ExternalProxyAction) {
-        when (val outcome = ProxyServiceController(this).applyExternalAction(action)) {
+        val outcome = ProxyServiceController(this).applyExternalAction(action)
+        when (outcome) {
             ExternalProxyOutcome.Started -> showToast(getString(R.string.external_proxy_started))
             ExternalProxyOutcome.Stopped -> showToast(getString(R.string.external_proxy_stopped))
             ExternalProxyOutcome.Restarted -> showToast(getString(R.string.external_proxy_restarted))
@@ -58,13 +76,31 @@ class ExternalControlActivity : Activity() {
             // 无可用订阅已由 resolveStartSubscriptionId 播报并置 Error，不重复提示
             ExternalProxyOutcome.NoSubscription -> Unit
 
-            // 本 Activity 就是 Activity 上下文，授权对话框可直接拉（Tile 那条路径拉不了）
+            // 授权对话框本身由 VpnPermissionActivity 调 VpnService.prepare() 弹，这里只是能直接
+            // startActivity 起这个跳板；Tile 是 Service，起它得走 startActivityAndCollapse
             is ExternalProxyOutcome.NeedVpnPermission -> startActivity(
                 Intent(this, VpnPermissionActivity::class.java)
                     .putExtra(VpnPermissionActivity.EXTRA_SUBSCRIPTION_ID, outcome.subscriptionId)
             )
         }
+        setResult(if (outcome.satisfiedRequest()) RESULT_OK else RESULT_CANCELED)
         finish()
+    }
+
+    /**
+     * AlreadyRunning / NotRunning 算达成（呼叫方要的状态本来就在那儿），Busy 与无订阅算未达成
+     * —— Tasker 这类调用方要据此决定重试还是报警。
+     */
+    private fun ExternalProxyOutcome.satisfiedRequest(): Boolean = when (this) {
+        ExternalProxyOutcome.Started,
+        ExternalProxyOutcome.Stopped,
+        ExternalProxyOutcome.Restarted,
+        ExternalProxyOutcome.AlreadyRunning,
+        ExternalProxyOutcome.NotRunning -> true
+
+        ExternalProxyOutcome.Busy,
+        ExternalProxyOutcome.NoSubscription,
+        is ExternalProxyOutcome.NeedVpnPermission -> false
     }
 
     companion object {
