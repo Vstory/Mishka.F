@@ -69,6 +69,23 @@ class MihomoRunner(private val context: Context) {
         return true
     }
 
+    /**
+     * 停机前认领 app 进程死亡后残留的 root 进程。本实例从未 start 也没 attach 过（attach-only
+     * 只由重新打开 app 触发，外部 intent 不经过），childPid 为空会让 [stop] 整段跳过、进程杀不掉。
+     *
+     * 只校验 PID 存活与 cmdline，不查 API 授权：停机不需要进程响应 API，而残留进程的授权状态
+     * 可能已经不可用。cmdline 校验用于挡住 PID 复用后误杀无关进程。
+     */
+    fun adoptForStop(pid: Int): Boolean {
+        if (childPid > 0) return true
+        if (pid <= 0 || !RootHelper.isAliveAsRoot(pid)) return false
+        if (!RootHelper.readRootCmdline(pid).contains("libmihomo_runner.so")) return false
+        childPid = pid
+        isRootMode = true
+        Log.i(TAG, "Adopted persisted mihomo pid=$pid for stop")
+        return true
+    }
+
     suspend fun start(
         subscriptionId: String? = null,
         useRoot: Boolean = false,
@@ -174,28 +191,34 @@ class MihomoRunner(private val context: Context) {
         }
     }
 
-    fun stop() {
+    /** 返回是否确认进程已死：未确认时调用方必须保留持久化 PID，否则残留进程再也定位不到。 */
+    fun stop(): Boolean {
+        var confirmedDead = true
         if (childPid > 0) {
-            Log.i(TAG, "Stopping mihomo pid=$childPid (root=$isRootMode)")
+            val target = childPid
+            Log.i(TAG, "Stopping mihomo pid=$target (root=$isRootMode)")
             if (isRootMode) {
                 val tunDevice = PlatformStorage(context).getString(StorageKeys.ROOT_TUN_DEVICE, "Mishka")
-                val killed = RootHelper.killAsRoot(childPid, tunDevice)
+                val killed = RootHelper.killAsRoot(target, tunDevice)
                 if (!killed) {
                     RootHelper.killMihomoByName(tunDevice)
                 }
+                // pkill 兜底后不复查的话，杀掉与否无从得知
+                confirmedDead = !RootHelper.isAliveAsRoot(target)
             } else {
-                ProcessHelper.nativeKill(childPid, force = false)
+                ProcessHelper.nativeKill(target, force = false)
                 // SIGTERM 后 mihomo 要关 TUN、断全部连接；等不到就升级，绝不无限期等
-                if (ProcessHelper.nativeWaitpid(childPid, GRACEFUL_STOP_TIMEOUT_MS) < 0) {
-                    Log.w(TAG, "mihomo pid=$childPid ignored SIGTERM, escalating to SIGKILL")
-                    ProcessHelper.nativeKill(childPid, force = true)
-                    ProcessHelper.nativeWaitpid(childPid, FORCE_STOP_TIMEOUT_MS)
+                if (ProcessHelper.nativeWaitpid(target, GRACEFUL_STOP_TIMEOUT_MS) < 0) {
+                    Log.w(TAG, "mihomo pid=$target ignored SIGTERM, escalating to SIGKILL")
+                    ProcessHelper.nativeKill(target, force = true)
+                    ProcessHelper.nativeWaitpid(target, FORCE_STOP_TIMEOUT_MS)
                 }
             }
             childPid = -1
         }
         secret = ""
         isRootMode = false
+        return confirmedDead
     }
 
     /**
