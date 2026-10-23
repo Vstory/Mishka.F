@@ -43,6 +43,9 @@ MARK = "0x04000000"
 FWMARK_TABLE = "2026"
 PRIORITY_FWMARK = "7997"
 DNS_MARK = "0x08000000"
+# ip rule show 的 fwmark 不带前导 0（0x08000000 显示为 0x8000000），
+# RootDnsApplier 自校验用硬编码正则去 grep 这个输出，必须用同一写法。
+DNS_MARK_RULE = "0x" + DNS_MARK[2:].lstrip("0")
 DNS_TABLE = "2027"
 DNS_PRIORITY = "7996"
 TETHER_PRIORITIES = ("8010", "8011", "8012", "8013")
@@ -315,6 +318,12 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             1,
         ),
         (
+            f"{SERVICE}/RootDnsApplier.kt",
+            "fwmark 0x2000000/0x2000000",
+            f"fwmark {DNS_MARK_RULE}/{DNS_MARK_RULE}",
+            2,
+        ),
+        (
             f"{SERVICE}/RootTproxyApplier.kt",
             'internal const val COMMENT_TAG_PREFIX = "mishka:tproxy:"',
             f'internal const val COMMENT_TAG_PREFIX = "{NS}:tproxy:"',
@@ -408,6 +417,12 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             1,
         ),
         (
+            f"{SERVICE}/RootTproxyApplier.kt",
+            "// 仅打 mark 让 fwmark 路由命中 table 2024 投递 socket；避免 TPROXY 重复拦截造成连接中断",
+            f"// 仅打 mark 让 fwmark 路由命中 table {FWMARK_TABLE} 投递 socket；避免 TPROXY 重复拦截造成连接中断",
+            1,
+        ),
+        (
             f"{SERVICE}/RuntimeOverrideBuilder.kt",
             "// sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移",
             "// sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移"
@@ -423,7 +438,7 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
         (
             f"{SERVICE}/RootTetherHijacker.kt",
             "// 与 box_for_magisk / Surfing / ClashforMagisk 选值一致（0x01000000/0x01000000）。",
-            f"// fork 取 {MARK}/{MARK}（同为 bit 24），与上游实例的 mark 错开。",
+            f"// fork 取 {MARK}/{MARK}（同为高位 bit），与上游实例的 mark 错开。",
             1,
         ),
         (
@@ -453,6 +468,7 @@ FORBIDDEN = [
     "-f libmihomo_runner.so",
     "0x01000000",
     "0x02000000",
+    "0x2000000",
     "7895",
     'ROOT_TUN_DEVICE, "Mishka"',
     'DEFAULT_TUN_DEVICE = "Mishka"',
