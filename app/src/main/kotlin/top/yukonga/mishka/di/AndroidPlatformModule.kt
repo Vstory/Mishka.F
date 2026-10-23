@@ -8,6 +8,7 @@ import top.yukonga.mishka.data.database.getAppDatabase
 import top.yukonga.mishka.platform.AppListProvider
 import top.yukonga.mishka.platform.BootStartManager
 import top.yukonga.mishka.platform.PlatformStorage
+import top.yukonga.mishka.platform.PlatformSystemInfo
 import top.yukonga.mishka.platform.ProxyServiceController
 import top.yukonga.mishka.platform.WifiPolicyController
 import top.yukonga.mishka.service.ProfileUpdateScheduler
@@ -19,6 +20,7 @@ import top.yukonga.mishka.service.ProfileUpdateScheduler
 val androidPlatformModule: Module = module {
     single { getAppDatabase(androidContext()) }
     single { PlatformStorage(androidContext()) }
+    single { PlatformSystemInfo(androidContext()) }
     single { ProxyServiceController(androidContext()) }
     single { AppListProvider(androidContext()) }
     single { WifiPolicyController(androidContext()) }

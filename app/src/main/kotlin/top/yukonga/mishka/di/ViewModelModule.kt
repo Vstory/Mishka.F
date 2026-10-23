@@ -29,6 +29,7 @@ val viewModelModule = module {
             overrideStore = get(),
             connectionManager = get(),
             latencyTester = get(),
+            systemInfo = get(),
             getActiveSubscriptionId = { get<SubscriptionRepository>().getActive()?.id },
             activeSubscription = get<SubscriptionRepository>().activeSubscription,
             onLiveProviderInfo = get<SubscriptionRepository>()::setLiveProviderInfo,

@@ -36,6 +36,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
 import top.yukonga.mishka.R
+import top.yukonga.mishka.platform.NetworkAddressType
 import top.yukonga.mishka.ui.util.sheetContentSafePadding
 import top.yukonga.mishka.ui.util.sheetHeightTransition
 import top.yukonga.mishka.util.FormatUtils
@@ -90,7 +91,14 @@ fun LazyListScope.systemCardsSection(
                         fontWeight = FontWeight.Medium,
                         color = MiuixTheme.colorScheme.onSurface,
                     )
-                    BadgeLabel(ipCategoryBadge(systemInfo.localIp))
+                    BadgeLabel(
+                        when (systemInfo.addressType) {
+                            NetworkAddressType.Unknown -> "--"
+                            NetworkAddressType.Tun -> "TUN"
+                            NetworkAddressType.Lan -> "LAN"
+                            NetworkAddressType.Wan -> "WAN"
+                        },
+                    )
                 }
                 InfoRow(stringResource(R.string.home_address), systemInfo.localIp, Modifier.padding(top = 8.dp))
                 InfoRow(stringResource(R.string.home_interface), systemInfo.interfaceName, Modifier.padding(top = 4.dp))
@@ -127,28 +135,6 @@ fun LazyListScope.systemCardsSection(
                 )
             }
         }
-    }
-}
-
-/**
- * 按 IP 段归类：
- * - `198.18.0.0/15` → TUN（sing-tun / VpnService fake-ip 段）
- * - RFC1918 `10/8` / `172.16/12` / `192.168/16` + CGNAT `100.64/10` + link-local `169.254/16` → LAN
- * - 其他（公网 / 空值 / 解析失败）→ WAN
- */
-private fun ipCategoryBadge(ip: String): String {
-    val parts = ip.split('.')
-    if (parts.size != 4) return "WAN"
-    val o1 = parts[0].toIntOrNull() ?: return "WAN"
-    val o2 = parts[1].toIntOrNull() ?: return "WAN"
-    return when (o1) {
-        198 if (o2 == 18 || o2 == 19) -> "TUN"
-        10 -> "LAN"
-        192 if o2 == 168 -> "LAN"
-        172 if o2 in 16..31 -> "LAN"
-        100 if o2 in 64..127 -> "LAN"
-        169 if o2 == 254 -> "LAN"
-        else -> "WAN"
     }
 }
 

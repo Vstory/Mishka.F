@@ -28,6 +28,7 @@ import top.yukonga.mishka.domain.model.Subscription
 import top.yukonga.mishka.domain.model.SubscriptionInfo
 import top.yukonga.mishka.domain.model.TunOverride
 import top.yukonga.mishka.domain.repository.MihomoRepository
+import top.yukonga.mishka.platform.NetworkAddressType
 import top.yukonga.mishka.platform.PlatformSystemInfo
 import top.yukonga.mishka.platform.ProxyServiceController
 import top.yukonga.mishka.platform.ProxyState
@@ -130,8 +131,9 @@ data class ConnectionRate(
 /** 系统信息快照：网卡 + CPU，2s 一次 */
 @Immutable
 data class SystemInfoSnapshot(
-    val localIp: String = "0.0.0.0",
+    val localIp: String = "--",
     val interfaceName: String = "--",
+    val addressType: NetworkAddressType = NetworkAddressType.Unknown,
     val cpuUsage: String = "--%",
 )
 
@@ -140,6 +142,7 @@ class HomeViewModel(
     private val overrideStore: OverrideJsonStore,
     private val connectionManager: MihomoConnectionManager,
     private val latencyTester: RuleLatencyTester,
+    private val systemInfo: PlatformSystemInfo,
     private val getActiveSubscriptionId: () -> String? = { null },
     private val activeSubscription: StateFlow<Subscription?> = MutableStateFlow(null).asStateFlow(),
     private val onLiveProviderInfo: (subscriptionId: String?, info: SubscriptionInfo?) -> Unit = { _, _ -> },
@@ -188,7 +191,6 @@ class HomeViewModel(
     private var startTime: Long = 0
     private var uptimeJob: Job? = null
     private var mihomoPid: Int = -1
-    private val systemInfo = PlatformSystemInfo()
 
     /** UI 是否在前台，由 MainActivity 的 onStart/onStop 驱动，门控各轮询循环 */
     private val uiVisible = MutableStateFlow(true)
@@ -610,13 +612,16 @@ class HomeViewModel(
     private fun startSystemInfoCollection() {
         systemInfoJob?.cancel()
         systemInfoJob = pollWhileVisible(2000.milliseconds) {
+            val tunMode = serviceController.status.value.tunMode
+            val tunDevice = _uiState.value.config?.tun?.device.orEmpty()
             // NetworkInterface 枚举与 /proc/<pid>/stat 都是阻塞调用
             val snapshot = withContext(Dispatchers.IO) {
-                val networkInfo = systemInfo.getNetworkInfo()
+                val networkInfo = systemInfo.getNetworkInfo(tunMode, tunDevice)
                 val cpu = systemInfo.getCpuUsage(mihomoPid)
                 SystemInfoSnapshot(
                     localIp = networkInfo.localIp,
                     interfaceName = networkInfo.interfaceName,
+                    addressType = networkInfo.addressType,
                     cpuUsage = if (cpu >= 0) "${cpu.toInt()}%" else "--%",
                 )
             }
