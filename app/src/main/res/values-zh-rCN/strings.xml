@@ -521,7 +521,8 @@
     <string name="settings_automation_summary">允许其他应用控制代理</string>
     <string name="automation_allow_external">允许外部应用控制</string>
     <string name="automation_allow_external_summary">允许其他应用通过 intent 启动、停止、切换和重启代理</string>
-    <string name="automation_actions_hint">支持的动作：START_PROXY / STOP_PROXY / TOGGLE_PROXY / RESTART_PROXY。动作完成时调用方收到 RESULT_OK；请求被拒绝、代理处于过渡态或无可用订阅时收到 RESULT_CANCELED。</string>
+    <string name="automation_actions_hint">支持的动作：START_PROXY / STOP_PROXY / TOGGLE_PROXY / RESTART_PROXY。</string>
+    <string name="automation_result_hint">动作完成时调用方收到 RESULT_OK；请求被拒绝、代理处于过渡态或无可用订阅时收到 RESULT_CANCELED。</string>
     <string name="automation_scope_hint">关闭后，快捷设置磁贴与应用内控制照常工作，它们不经过此开关。</string>
     <string name="settings_external_control_summary">覆写外部控制器配置</string>
 

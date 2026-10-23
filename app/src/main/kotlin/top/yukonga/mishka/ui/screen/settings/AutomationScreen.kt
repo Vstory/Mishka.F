@@ -134,6 +134,12 @@ fun AutomationScreen(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     )
                     Text(
+                        text = stringResource(R.string.automation_result_hint),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                    Text(
                         text = stringResource(R.string.automation_scope_hint),
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         fontSize = 13.sp,

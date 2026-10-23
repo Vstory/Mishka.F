@@ -523,7 +523,8 @@
     <string name="settings_automation_summary">Allow other apps to control the proxy</string>
     <string name="automation_allow_external">Allow external app control</string>
     <string name="automation_allow_external_summary">Let other apps start, stop, toggle and restart the proxy by sending an intent</string>
-    <string name="automation_actions_hint">Supported actions: START_PROXY / STOP_PROXY / TOGGLE_PROXY / RESTART_PROXY. The calling app receives RESULT_OK when the action is done, and RESULT_CANCELED when the request is refused, the proxy is mid-transition or no subscription is available.</string>
+    <string name="automation_actions_hint">Supported actions: START_PROXY / STOP_PROXY / TOGGLE_PROXY / RESTART_PROXY.</string>
+    <string name="automation_result_hint">The calling app receives RESULT_OK when the action is done, and RESULT_CANCELED when the request is refused, the proxy is mid-transition or no subscription is available.</string>
     <string name="automation_scope_hint">The Quick Settings tile and the in-app controls keep working when this is off — they never go through this switch.</string>
     <string name="settings_external_control_summary">Overwrite external controller configuration</string>
 
