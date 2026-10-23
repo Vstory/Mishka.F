@@ -1,0 +1,96 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Compose 编译报告：每次 push 出一份 restartable / skippable 与 unstable 参数清单。
+#   上游 AGENTS.md 要求在新增 composable 后「确认 restartable 全部 skippable、0 unstable
+#   参数」，做法是本地临时加 reportsDestination 跑一次、验完删掉 —— 靠人记得。本工作流把
+#   它常态化：报告只有跑构建才存在，跑构建的地方只有 CI，所以放在这里。
+#   报告注入只改 runner 工作区，仓库源码不留该配置（同 AGENTS.md 的「验完删掉」）。
+#   ⚠️ 与 build-ci-release.yml **分开**成独立工作流：出包那条只要包能装上，这条要的是
+#      报告，两者的失败语义不同，混在一起会让「报告不理想」看起来像「构建失败」。
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Compose Report
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+# 同一分支连续推送时取消上一轮：报告只关心最新提交。
+concurrency:
+  group: compose-report-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '21'
+  ANDROID_PLATFORM: android-37.2
+  BUILD_TOOLS: 37.0.0
+
+jobs:
+  report:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # scripta 是 includeBuild（settings.gradle.kts 里 includeBuild("scripta")），缺了
+          # Gradle 配置阶段直接失败；mihomo 的 Go 编译虽被 -x buildMihomo 跳过，配置期仍会
+          # 解析它的目录与 patch ⇒ 仍需子模块
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Set up JDK
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKM="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          for pkg in "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS}"; do
+            "$SDKM" "$pkg" >/dev/null 2>&1 || sudo "$SDKM" "$pkg" >/dev/null 2>&1 \
+              || echo "::warning::$pkg 安装返回非零"
+          done
+          # 缺一即在此失败：这里不点名断言会留到 Gradle 报含糊错
+          test -f "$SDK/platforms/${ANDROID_PLATFORM}/android.jar" \
+            || { echo "::error::platforms/${ANDROID_PLATFORM} 未就位"; exit 1; }
+          test -x "$SDK/build-tools/${BUILD_TOOLS}/aapt2" \
+            || { echo "::error::build-tools ${BUILD_TOOLS} 未就位"; exit 1; }
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      # key 与出包工作流同源：两条工作流都在同一 ref 上跑时能互相 restore，少一次全量依赖下载。
+      - name: Gradle cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      # 用 printf 而非 heredoc：`run: |` 的块内容必须统一缩进，heredoc 结束符顶不了格。
+      - name: Inject report destination
+        run: |
+          printf '\ncomposeCompiler {\n    reportsDestination.set(layout.buildDirectory.dir("compose_reports"))\n}\n' >> app/build.gradle.kts
+          tail -5 app/build.gradle.kts
+
+      # --rerun-tasks：报告只在任务真正执行时写，命中缓存就是空的。
+      # -x buildMihomo：只要 Kotlin 的编译产物，跳过 Go 核心（分钟级）。
+      - name: Generate compose report
+        run: ./gradlew :app:compileDebugKotlin -x buildMihomo --rerun-tasks
+
+      - name: Summarize
+        run: python3 scripts/compose-report-summary.py
+
+      # artifact 名带 run_number：upload-artifact 拒绝同名 artifact（不覆盖）。
+      - name: Upload report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compose-reports-r${{ github.run_number }}
+          path: app/build/compose_reports/
+          if-no-files-found: error
+          retention-days: 14
