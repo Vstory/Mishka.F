@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""CI 专用：把 runner 工作区改写成 fork 身份，仓库里的源码一行都不落库。
+"""CI 专用：把 runner 工作区的包名与显示名改写成 fork 身份，仓库源码一行都不落库。
 
-fork 包与上游原版要能**同时安装、同时运行**，两边用到的一切全局命名空间都必须错开 ——
-包名、显示名（含 Gradle 产物名前缀 archivesName）、TUN 设备名、iptables chain 名与
-xt_comment 标签、fwmark / route table / ip rule 优先级、TPROXY 与 DNS 端口、按名字匹配
-进程的 pgrep/pkill 模式。
+只改四样东西：applicationId、显示名（含 Gradle 产物名前缀 archivesName）、关于页「开放
+源代码许可」首位的 fork 条目、以及 applicationId 改动连带的开机自启组件名。端口、TUN 设备
+名、iptables chain / fwmark / route table、进程匹配模式一律沿用上游原值 —— 前提是设备上
+只装这一版、不与上游同时安装或同时运行。哪天要两版并存，得先把这些全局命名空间重新错开。
 
-漏改任何一项都**不会**编译失败，只会在两个包同时跑时静默互相拆台。最典型的一条：
-`RootTproxyApplier.teardown()` / `RootTetherHijacker.teardown()` 按 chain 名与标签清规则，
-名字撞上就会把上游实例的规则一并清掉 —— 上游看着还在跑，流量却已裸奔。
+包名为什么必须连带改组件名：namespace 保持 top.yukonga.mishka（R 类与类的全限定名都跟它
+走），而 BootStartManager 里用 context.packageName 拼组件名 —— 运行时它返回的是
+applicationId（fork 值），拼出来的类不存在，开机自启会直接崩。
 
 因此每一项都按「期望的原文 → 改写后」逐条声明，任一项找不到原文即整体失败：上游改了
 写法时必须回来同步，不允许静默漏改。改写只作用于 CI 的工作区，仓库源码保持与上游逐字
@@ -29,62 +29,34 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KOTLIN_DIR = "app/src/main/kotlin/top/yukonga/mishka"
 BUILDSRC_DIR = "build-logic/src/main/kotlin"
-SERVICE = f"{KOTLIN_DIR}/service"
 PLATFORM = f"{KOTLIN_DIR}/platform"
 
 DEFAULT_APP_ID = "top.yukonga.mishka.fork"
 DEFAULT_LABEL = "Mishka.F"
 
-# fork 专属取值。全部与上游错开：上游 RootTproxyApplier 用 0x01000000 / 2024 / 7999，
-# RootDnsApplier 用 0x02000000 / 2025 / 7998；另有 "Mishka" / 7895 / 7890 / 9090 / 2022 / 9000。
-TUN_DEVICE = "MishkaF"
-NS = "mishkafork"  # 内核态命名空间：chain 名与 xt_comment 标签共用的前缀
-MARK = "0x04000000"
-FWMARK_TABLE = "2026"
-PRIORITY_FWMARK = "7997"
-DNS_MARK = "0x08000000"
-# ip rule show 的 fwmark 不带前导 0（0x08000000 显示为 0x8000000），
-# RootDnsApplier 自校验用硬编码正则去 grep 这个输出，必须用同一写法。
-DNS_MARK_RULE = "0x" + DNS_MARK[2:].lstrip("0")
-DNS_TABLE = "2027"
-DNS_PRIORITY = "7996"
-TETHER_PRIORITIES = ("8010", "8011", "8012", "8013")
-TPROXY_PORT = "7896"
-MIXED_PORT = "7891"
-EXT_CTL = "127.0.0.1:9091"
-ROOT_TUN_TABLE = "2023"
-ROOT_TUN_RULE_INDEX = "9010"
-
 
 def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None]]:
     """(相对路径, 期望原文, 改写后, 期望出现次数)，次数 None 表示只要求至少一处。"""
     return [
-        # ── 身份：包名（applicationId，不动 namespace）、开机自启组件名、显示名 ──
+        # ── 身份：包名（applicationId，不动 namespace）──
         (
             "app/build.gradle.kts",
             "applicationId = ProjectConfig.PACKAGE_NAME",
             f'applicationId = "{app_id}"',
             1,
         ),
+        # 包名改了但 namespace 没改 → 用 context.packageName 拼出来的组件名会指向不存在的类
         (
             f"{PLATFORM}/BootStartManager.kt",
             '"${context.packageName}.service.BootReceiver"',
             '"top.yukonga.mishka.service.BootReceiver"',
             1,
         ),
+        # ── 显示名 ──
         (
             "app/src/main/res/values/strings.xml",
             '<string name="app_name" translatable="false">Mishka</string>',
             f'<string name="app_name" translatable="false">{label}</string>',
-            1,
-        ),
-        # 关于页「开放源代码许可」首位放本 fork —— 源码保持与上游逐字一致，条目只在构建时注入
-        (
-            f"{KOTLIN_DIR}/ui/screen/settings/AboutScreen.kt",
-            '"Mishka" to "https://github.com/YuKongA/Mishka",',
-            f'"{label}" to "https://github.com/Vstory/Mishka.F",\n'
-            + " " * 36
-            + '"Mishka" to "https://github.com/YuKongA/Mishka",',
             1,
         ),
         # Gradle 侧原始产物名（app/build/outputs/.../Mishka.F-v1.0.0(225)-arm64-v8a-release.apk）：
@@ -96,403 +68,22 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             f'const val APP_NAME = "{label}"',
             1,
         ),
-        # ── TUN 设备名：root TUN 模式两个实例抢同名接口，清理时 ip link delete 会删掉对方的 ──
+        # ── 关于页「开放源代码许可」首位放本 fork —— 源码保持与上游逐字一致，条目只在构建时注入 ──
         (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            f'internal const val DEFAULT_TUN_DEVICE = "Mishka"',
-            f'internal const val DEFAULT_TUN_DEVICE = "{TUN_DEVICE}"',
-            1,
-        ),
-        (
-            f"{SERVICE}/MihomoRunner.kt",
-            'StorageKeys.ROOT_TUN_DEVICE, "Mishka")',
-            f'StorageKeys.ROOT_TUN_DEVICE, "{TUN_DEVICE}")',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootHelper.kt",
-            'tunDevice: String = "Mishka"',
-            f'tunDevice: String = "{TUN_DEVICE}"',
-            2,
-        ),
-        (
-            f"{KOTLIN_DIR}/ui/screen/settings/RootSettingsScreen.kt",
-            'private const val DEFAULT_TUN_DEVICE = "Mishka"',
-            f'private const val DEFAULT_TUN_DEVICE = "{TUN_DEVICE}"',
-            1,
-        ),
-        # ── 进程匹配：pgrep/pkill 按 cmdline 匹配，只按 .so 名会连对方实例一起杀 ──
-        #    包名出现在二进制路径里（/data/app/~~x/<pkg>-y/lib/arm64/libmihomo_runner.so）
-        (
-            f"{SERVICE}/RootHelper.kt",
-            "-f libmihomo_runner.so",
-            f"-f '{app_id}.*libmihomo_runner.so'",
-            9,
-        ),
-        # ── TPROXY 内核态（RootTetherHijacker：tether 共享/热点劫持） ──
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val PRIORITY_V4 = 8000",
-            f"private const val PRIORITY_V4 = {TETHER_PRIORITIES[0]}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val PRIORITY_V6 = 8001",
-            f"private const val PRIORITY_V6 = {TETHER_PRIORITIES[1]}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val PRIORITY_RETURN_V4 = 8002",
-            f"private const val PRIORITY_RETURN_V4 = {TETHER_PRIORITIES[2]}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val PRIORITY_RETURN_V6 = 8003",
-            f"private const val PRIORITY_RETURN_V6 = {TETHER_PRIORITIES[3]}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "internal const val TPROXY_PORT = 7895",
-            f"internal const val TPROXY_PORT = {TPROXY_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val TPROXY_MARK = 0x01000000",
-            f"private const val TPROXY_MARK = {MARK}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val TPROXY_MASK = 0x01000000",
-            f"private const val TPROXY_MASK = {MARK}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val FWMARK_TABLE = 2024",
-            f"private const val FWMARK_TABLE = {FWMARK_TABLE}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "private const val PRIORITY_FWMARK = 7999",
-            f"private const val PRIORITY_FWMARK = {PRIORITY_FWMARK}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            'private const val CHAIN_NAME = "mishka_tether"',
-            f'private const val CHAIN_NAME = "{NS}_tether"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            'private const val CHAIN_DIVERT_NAME = "mishka_tether_divert"',
-            f'private const val CHAIN_DIVERT_NAME = "{NS}_tether_divert"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            'internal const val COMMENT_TAG_PREFIX = "mishka:tether:"',
-            f'internal const val COMMENT_TAG_PREFIX = "{NS}:tether:"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            'val probeName = "mishka_probe_',
-            f'val probeName = "{NS}_probe_',
-            1,
-        ),
-        # ── TPROXY 内核态（RootTproxyApplier：全局 tproxy 劫持） ──
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "internal const val MARK = 0x01000000",
-            f"internal const val MARK = {MARK}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "internal const val MASK = 0x01000000",
-            f"internal const val MASK = {MARK}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "internal const val TABLE = 2024",
-            f"internal const val TABLE = {FWMARK_TABLE}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "internal const val PRIORITY = 7999",
-            f"internal const val PRIORITY = {PRIORITY_FWMARK}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "internal const val TPROXY_PORT = RootTetherHijacker.TPROXY_PORT  // 7895",
-            f"internal const val TPROXY_PORT = RootTetherHijacker.TPROXY_PORT  // {TPROXY_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            'private const val CHAIN_PRE = "mishka_tproxy_pre"',
-            f'private const val CHAIN_PRE = "{NS}_tproxy_pre"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            'private const val CHAIN_OUT = "mishka_tproxy_out"',
-            f'private const val CHAIN_OUT = "{NS}_tproxy_out"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            'private const val CHAIN_DIVERT = "mishka_tproxy_divert"',
-            f'private const val CHAIN_DIVERT = "{NS}_tproxy_divert"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'internal const val MARK = "0x02000000"',
-            f'internal const val MARK = "{DNS_MARK}"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'internal const val MASK = "0x02000000"',
-            f'internal const val MASK = "{DNS_MARK}"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            "private const val TABLE = 2025",
-            f"private const val TABLE = {DNS_TABLE}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            "private const val PRIORITY = 7998",
-            f"private const val PRIORITY = {DNS_PRIORITY}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'private const val CHAIN_PRE = "mishka_rootdns_pre"',
-            f'private const val CHAIN_PRE = "{NS}_rootdns_pre"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'private const val CHAIN_OUT = "mishka_rootdns_out"',
-            f'private const val CHAIN_OUT = "{NS}_rootdns_out"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'private const val CHAIN_INPUT = "mishka_rootdns_input"',
-            f'private const val CHAIN_INPUT = "{NS}_rootdns_input"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'private const val CHAIN_INPUT_TEMP = "mishka_rootdns_input_tmp"',
-            f'private const val CHAIN_INPUT_TEMP = "{NS}_rootdns_input_tmp"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            'private const val COMMENT_PREFIX = "mishka:dns:"',
-            f'private const val COMMENT_PREFIX = "{NS}:dns:"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            "mishka:tproxy:dns-",
-            f"{NS}:tproxy:dns-",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootDnsApplier.kt",
-            "fwmark 0x2000000/0x2000000",
-            f"fwmark {DNS_MARK_RULE}/{DNS_MARK_RULE}",
-            2,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            'internal const val COMMENT_TAG_PREFIX = "mishka:tproxy:"',
-            f'internal const val COMMENT_TAG_PREFIX = "{NS}:tproxy:"',
-            1,
-        ),
-        # ── ROOT TUN 路由常量（sing-tun 注入值） ──
-        (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            "internal const val ROOT_TUN_TABLE = 2022",
-            f"internal const val ROOT_TUN_TABLE = {ROOT_TUN_TABLE}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            "internal const val ROOT_TUN_RULE_INDEX = 9000",
-            f"internal const val ROOT_TUN_RULE_INDEX = {ROOT_TUN_RULE_INDEX}",
-            1,
-        ),
-        # ── 客户端/兜底端口：两个核心同时起时抢同一端口会直接绑不上 ──
-        (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            "internal const val DEFAULT_MIXED_PORT = 7890",
-            f"internal const val DEFAULT_MIXED_PORT = {MIXED_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/MihomoRunner.kt",
-            'var externalController: String = "127.0.0.1:9090"',
-            f'var externalController: String = "{EXT_CTL}"',
-            1,
-        ),
-        (
-            f"{KOTLIN_DIR}/data/api/MihomoApiClient.kt",
-            'private val baseUrl: String = "http://127.0.0.1:9090"',
-            f'private val baseUrl: String = "http://{EXT_CTL}"',
-            1,
-        ),
-        (
-            f"{KOTLIN_DIR}/domain/model/ConfigurationOverride.kt",
-            '?: "127.0.0.1:9090"',
-            f'?: "{EXT_CTL}"',
-            1,
-        ),
-        (
-            f"{PLATFORM}/ProxyServiceController.kt",
-            'val externalController: String = "127.0.0.1:9090"',
-            f'val externalController: String = "{EXT_CTL}"',
-            1,
-        ),
-        (
-            f"{KOTLIN_DIR}/ui/screen/home/StatusSection.kt",
-            "private const val TPROXY_INBOUND_PORT: Int = 7895",
-            f"private const val TPROXY_INBOUND_PORT: Int = {TPROXY_PORT}",
-            1,
-        ),
-        # ── 注释里的 grep 锚点与示例值：改了命名空间却留着旧锚点，排障时会 grep 不到东西 ──
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "// 低于 sing-tun 默认 rule index 9000，保证先匹配（数字越小优先级越高）",
-            f"// 低于注入给 sing-tun 的 rule index（fork = {ROOT_TUN_RULE_INDEX}），保证先匹配（数字越小优先级越高）",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "从 10000+ 起，7999 安全",
-            f"从 10000+ 起，{PRIORITY_FWMARK} 安全",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            'grep "mishka:tether:"',
-            f'grep "{NS}:tether:"',
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "mishka:tether:<tag>",
-            f"{NS}:tether:<tag>",
-            2,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "- PROXY-TPROXY：ip rule priority 7999 存在 或 `mishka_tether` chain 存在",
-            f"- PROXY-TPROXY：ip rule priority {PRIORITY_FWMARK} 存在 或 `{NS}_tether` chain 存在",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "tproxy-port=7895",
-            f"tproxy-port={TPROXY_PORT}",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            "// 仅打 mark 让 fwmark 路由命中 table 2024 投递 socket；避免 TPROXY 重复拦截造成连接中断",
-            f"// 仅打 mark 让 fwmark 路由命中 table {FWMARK_TABLE} 投递 socket；避免 TPROXY 重复拦截造成连接中断",
-            1,
-        ),
-        (
-            f"{SERVICE}/RuntimeOverrideBuilder.kt",
-            "// sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移",
-            "// sing-tun 默认值也是 2022 / 9000，此处显式注入避免上游默认值漂移"
-            f"（fork 注入 {ROOT_TUN_TABLE} / {ROOT_TUN_RULE_INDEX}，与上游实例错开）",
-            1,
-        ),
-        (
-            f"{KOTLIN_DIR}/domain/model/ConfigurationOverride.kt",
-            "默认 `127.0.0.1:9090`",
-            f"默认 `{EXT_CTL}`",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTetherHijacker.kt",
-            "// 与 box_for_magisk / Surfing / ClashforMagisk 选值一致（0x01000000/0x01000000）。",
-            f"// fork 取 {MARK}/{MARK}（同为高位 bit），与上游实例的 mark 错开。",
-            1,
-        ),
-        (
-            f"{SERVICE}/RootTproxyApplier.kt",
-            '/** 生成 `-m comment --comment "mishka:tproxy:<label>"` 片段；追加到 iptables 命令末尾。 */',
-            f'/** 生成 `-m comment --comment "{NS}:tproxy:<label>"` 片段；追加到 iptables 命令末尾。 */',
-            1,
-        ),
-        *[
-            (f"app/src/main/res/values{suffix}/strings.xml", "127.0.0.1:9090", EXT_CTL, 1)
-            for suffix in ("", "-ru", "-zh-rCN", "-zh-rTW")
-        ],
-        # 备份文件名带 label：同机装两版时，导出目录与 WebDAV 里分得清谁的备份
-        (
-            f"{KOTLIN_DIR}/ui/screen/settings/BackupRestoreScreen.kt",
-            'return "mishka-backup-$ts.zip"',
-            f'return "{label}-backup-$ts.zip"',
-            1,
-        ),
-        (
-            f"{KOTLIN_DIR}/data/backup/WebDavClient.kt",
-            'const val BACKUP_FILE = "mishka-backup.zip"',
-            f'const val BACKUP_FILE = "{label}-backup.zip"',
-            1,
-        ),
-        (
-            f"{KOTLIN_DIR}/data/backup/BackupManager.kt",
-            'private const val TRANSFER_FILE = "mishka-backup-transfer.zip"',
-            f'private const val TRANSFER_FILE = "{label}-backup-transfer.zip"',
+            f"{KOTLIN_DIR}/ui/screen/settings/AboutScreen.kt",
+            '"Mishka" to "https://github.com/YuKongA/Mishka",',
+            f'"{label}" to "https://github.com/Vstory/Mishka.F",\n'
+            + " " * 36
+            + '"Mishka" to "https://github.com/YuKongA/Mishka",',
             1,
         ),
     ]
 
 
-# 改写完成后必须一处不剩的字符串。上游将来新增同类代码时，这里会先红 ——
-# 比等到两个包同时跑起来互相拆台要便宜得多。
+# 改写完成后必须一处不剩的字符串。
 FORBIDDEN = [
     "${context.packageName}.",
-    "mishka_tproxy",
-    "mishka_tether",
-    "mishka_rootdns",
-    "mishka_probe_",
-    "mishka:tproxy:",
-    "mishka:tether:",
-    "mishka:dns:",
-    "-f libmihomo_runner.so",
-    "0x01000000",
-    "0x02000000",
-    "0x2000000",
-    "7895",
-    'ROOT_TUN_DEVICE, "Mishka"',
-    'DEFAULT_TUN_DEVICE = "Mishka"',
     'APP_NAME = "Mishka"',
-    "mishka-backup",
 ]
 
 
@@ -555,16 +146,14 @@ def main() -> int:
 
     hits = scan_forbidden()
     if hits:
-        print("::error::改写后仍有未错开的全局命名：", file=sys.stderr)
+        print("::error::改写后仍有残留：", file=sys.stderr)
         for h in hits:
             print(f"  - {h}", file=sys.stderr)
         return 1
 
     print(
-        f"已改写为 fork 身份：appId={args.app_id} label={args.label} "
-        f"tun={TUN_DEVICE} 内核态前缀={NS} tproxy={TPROXY_PORT} "
-        f"dnsMark={DNS_MARK} dnsTable={DNS_TABLE} "
-        f"mixed={MIXED_PORT} extCtl={EXT_CTL}（共 {len(edits)} 项，仅工作区，不入库）"
+        f"已改写为 fork 身份：appId={args.app_id} label={args.label}"
+        f"（共 {len(edits)} 项，仅工作区，不入库）"
     )
     return 0
 

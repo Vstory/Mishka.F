@@ -16,7 +16,7 @@ miuix + mihomo 的 Android 代理客户端。单模块 `:app`（`com.android.app
 
 ## 合并上游
 
-上游是 [YuKongA/Mishka](https://github.com/YuKongA/Mishka)（remote `upstream`）。**仓库源码保持与上游一致，fork 身份全部在构建期由 `scripts/ci-fork-identity.py` 改写**——这条决定了合并方式：不要为了「让补丁好写」而把端口、包名直接改进源码，锚点一旦失配，构建的前置检查会直接 abort。
+上游是 [YuKongA/Mishka](https://github.com/YuKongA/Mishka)（remote `upstream`）。**仓库源码保持与上游一致，fork 身份全部在构建期由 `scripts/ci-fork-identity.py` 改写**——这条决定了合并方式：不要为了「让补丁好写」而把包名、显示名直接改进源码，锚点一旦失配，构建的前置检查会直接 abort。
 
 ### 步骤
 

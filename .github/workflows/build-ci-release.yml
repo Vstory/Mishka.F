@@ -112,17 +112,17 @@ jobs:
           # mihomo（Go 核心源码）+ scripta（settings.gradle.kts 的 includeBuild）缺一即编不出来
           submodules: recursive
 
-      # CI 出包的身份与上游原版彻底错开：包名 / 显示名 / root 模式的内核态命名空间（TUN 设备名、
-      #   iptables chain 名与 xt_comment 标签、fwmark / route table / ip rule 优先级、TPROXY 与
-      #   DNS 端口、pgrep / pkill 匹配模式）。两者可同时安装、**甚至同时开 root 模式**对照同一版本。
+      # CI 出包只改身份四件套：包名 / 显示名 / Gradle 产物名前缀 / 关于页的 fork 条目（外加包名
+      #   连带的开机自启组件名）。端口、TUN 设备名、iptables chain / fwmark / route table、进程
+      #   匹配模式一律沿用上游原值 —— 设备上只装这一版、不与上游同时安装或同时运行。
       #   **只改写 runner 工作区**，仓库源码保持与上游逐字一致 —— 包名一旦落进仓库，每次 rebase
-      #   上游都要撞冲突。逐项清单与「为什么必须错开」见 scripts/ci-fork-identity.py。
+      #   上游都要撞冲突。逐项清单见 scripts/ci-fork-identity.py。
       #   ⚠️ 改的是 applicationId（最终包名），**不动 namespace**：R 类、资源引用、类的全限定名
       #      都跟 namespace 走，改它会让 manifest 里的 `.MainActivity` 解析到不存在的类（能装、一开就崩）。
       #      代价是全仓只剩一处代码踩了「applicationId == Kotlin 包名」的隐含约定，必须同改：
       #      BootStartManager 用 `${context.packageName}.service.BootReceiver` 拼类名，包名一变
       #      就指向不存在的组件 —— setComponentEnabledSetting 抛未知组件、开机自启开关静默失效。
-      #   ⚠️ 改写不生效必须**失败**：脚本事先逐项校验「期望的原文还在」、事后扫描「未错开的命名还有
+      #   ⚠️ 改写不生效必须**失败**：脚本事先逐项校验「期望的原文还在」、事后扫描「残留的旧写法还有
       #      没有」，两处任一出问题即红（上游改了写法必须回来同步）。Verify 那几步是同内容的第二道闸。
       - name: Apply fork identity (workspace only, not committed)
         run: |
@@ -534,7 +534,7 @@ jobs:
             echo "构建提交 [\`${SHORT}\`](https://github.com/${REPO}/commit/${COMMIT})　·　版本 ${VER}（versionCode ${CODE}）　·　变体 ${VARIANT_LIST}"
             echo
             echo "- 单 ABI \`${EXPECT_ABI}\`（abi splits，非通用包）：装包前确认设备架构；mihomo 核心 \`libmihomo.so\` 由 CI 现编（Go + NDK），不随仓库分发。"
-            echo "- 包名 \`${EXPECT_PACKAGE}\` / 显示名 ${FORK_LABEL}：可与上游原版并存安装、互不影响数据目录；root 模式的 TUN 设备名与 iptables 规则名也已错开，两个包可同时开启。"
+            echo "- 包名 \`${EXPECT_PACKAGE}\` / 显示名 ${FORK_LABEL}：可与上游原版并存安装、互不影响数据目录；端口、TUN 设备名等沿用上游原值，两版不要同时运行。"
             echo "- 各包共用同一把固定钥（v2 + v3 签名），debug 与 release 可互相覆盖安装。"
             echo "- debug 包调试日志最全（由 \`BuildConfig.DEBUG\` 在编译期决定），排障优先用它；release 包与正式版同构建类型（R8 已裁剪），可用来验证 minify/keep 规则。"
           )"
