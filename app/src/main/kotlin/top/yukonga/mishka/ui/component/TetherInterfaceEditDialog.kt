@@ -1,7 +1,5 @@
 package top.yukonga.mishka.ui.component
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,10 +24,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.mishka.R
+import top.yukonga.mishka.custom.forms.DialogButtons
 import top.yukonga.mishka.platform.scanTetherInterfacesAsRoot
 import top.yukonga.mishka.platform.showToast
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -96,31 +94,15 @@ fun TetherInterfaceEditDialog(
                 }
             },
         )
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            TextButton(
-                text = stringResource(R.string.common_cancel),
-                modifier = Modifier.weight(1f),
-                onClick = onDismiss,
-            )
-            TextButton(
-                text = stringResource(R.string.common_confirm),
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    val csv = textState.text.toString()
-                        .lines()
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                        .distinct()
-                        .joinToString(",")
-                    onConfirm(csv)
-                    onDismiss()
-                },
-            )
+        DialogButtons(onDismiss = onDismiss) {
+            val csv = textState.text.toString()
+                .lines()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .joinToString(",")
+            onConfirm(csv)
+            onDismiss()
         }
     }
 
@@ -166,27 +148,9 @@ private fun ScanResultDialog(
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            TextButton(
-                text = stringResource(R.string.common_cancel),
-                modifier = Modifier.weight(1f),
-                onClick = onDismiss,
-            )
-            TextButton(
-                text = stringResource(R.string.common_confirm),
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    val picked = candidates.filter { selected[it] == true }
-                    onApply(picked)
-                },
-            )
+        DialogButtons(onDismiss = onDismiss) {
+            val picked = candidates.filter { selected[it] == true }
+            onApply(picked)
         }
     }
 }

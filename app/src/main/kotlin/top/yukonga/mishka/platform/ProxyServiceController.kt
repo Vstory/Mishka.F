@@ -25,7 +25,7 @@ enum class ProxyState {
     Error,
 }
 
-enum class TunMode { Vpn, RootTun, RootTproxy }
+enum class TunMode { Vpn, RootTun, RootTproxy, RootEbpf }
 
 data class ProxyServiceStatus(
     val state: ProxyState = ProxyState.Stopped,
@@ -229,7 +229,7 @@ class ProxyServiceController(private val context: Context) {
      */
     fun reattachRoot() {
         val mode = getTunMode()
-        if (mode != TunMode.RootTun && mode != TunMode.RootTproxy) return
+        if (mode == TunMode.Vpn) return
         val id = storage.getString(StorageKeys.ACTIVE_PROFILE_UUID, "").ifEmpty { null } ?: run {
             storage.putString(StorageKeys.SERVICE_WAS_RUNNING, "false")
             return
@@ -319,7 +319,7 @@ class ProxyServiceController(private val context: Context) {
             }
         )
 
-        TunMode.RootTun, TunMode.RootTproxy -> Intent(context, MishkaRootService::class.java).apply {
+        TunMode.RootTun, TunMode.RootTproxy, TunMode.RootEbpf -> Intent(context, MishkaRootService::class.java).apply {
             action = when (op) {
                 Op.Start -> MishkaRootService.ACTION_START
                 Op.Restart -> MishkaRootService.ACTION_RESTART
@@ -356,6 +356,7 @@ class ProxyServiceController(private val context: Context) {
         return when (storage.getString(StorageKeys.TUN_MODE, "vpn")) {
             "root_tun" -> TunMode.RootTun
             "root_tproxy" -> TunMode.RootTproxy
+            "root_ebpf" -> TunMode.RootEbpf
             else -> TunMode.Vpn
         }
     }
@@ -391,7 +392,7 @@ class ProxyServiceController(private val context: Context) {
         // attach-only 重连（绝不全新启动）。但设备重启会杀死 root 进程，此时持久化的 PID 已
         // 过期——仅凭"PID 字符串非空"会误判为"进程仍活"而自动全新启动（用户未开启开机自启
         // 却看到代理自动跑起来的根源）。重启识别见 [BootSession]。
-        if (wasRunning && (currentMode == TunMode.RootTun || currentMode == TunMode.RootTproxy)) {
+        if (wasRunning && currentMode != TunMode.Vpn) {
             val hasPid = storage.getString(StorageKeys.ROOT_MIHOMO_PID, "").isNotEmpty()
             val rebooted = BootSession.hasRebootedSince(context, storage)
             if (hasPid && !rebooted) {

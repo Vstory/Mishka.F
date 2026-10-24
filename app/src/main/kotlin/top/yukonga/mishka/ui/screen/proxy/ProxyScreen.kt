@@ -12,7 +12,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,6 +91,7 @@ import top.yukonga.mishka.ui.theme.LocalPlatformDensity
 import top.yukonga.mishka.ui.theme.StatusColors
 import top.yukonga.mishka.ui.util.WideContentBox
 import top.yukonga.mishka.viewmodel.ProxyGroupUi
+import top.yukonga.mishka.viewmodel.isBuiltInOutbound
 import top.yukonga.mishka.viewmodel.ProxyUiState
 import top.yukonga.mishka.viewmodel.ProxyViewModel
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -123,6 +126,7 @@ private class GroupRowsCacheEntry(
     val all: ImmutableList<String>,
     val delays: ImmutableMap<String, Int>,
     val sortOption: Int,
+    val hideUnavailable: Boolean,
     val rows: ImmutableList<ImmutableList<String>>,
 )
 
@@ -142,6 +146,8 @@ fun ProxyScreen(
     val sortOption = viewModel?.sortOption?.collectAsStateWithLifecycle()?.value ?: 0
     val singleColumn = viewModel?.singleColumn?.collectAsStateWithLifecycle()?.value == true
     val showGroupIcons = viewModel?.showGroupIcons?.collectAsStateWithLifecycle()?.value ?: true
+    val hideUnavailable = viewModel?.hideUnavailable?.collectAsStateWithLifecycle()?.value == true
+    val closeConnectionsOnSwitch = viewModel?.closeConnectionsOnSwitch?.collectAsStateWithLifecycle()?.value == true
     // 0 = 行内两列并排，1 = 行内竖排
     val singleColumnProgress = animateFloatAsState(
         targetValue = if (singleColumn) 1f else 0f,
@@ -239,14 +245,14 @@ fun ProxyScreen(
     // 分组缓存排序分块，防单节点延迟变动触发全量重排
     val rowsCache = remember { mutableMapOf<String, GroupRowsCacheEntry>() }
 
-    fun getGroupRows(group: ProxyGroupUi, option: Int): ImmutableList<ImmutableList<String>> {
+    fun getGroupRows(group: ProxyGroupUi, displayNodes: List<String>, option: Int, hideUnavailable: Boolean): ImmutableList<ImmutableList<String>> {
         val cached = rowsCache[group.name]
-        if (cached != null && cached.all === group.all && cached.delays === group.delays && cached.sortOption == option) {
+        if (cached != null && cached.all === group.all && cached.delays === group.delays && cached.sortOption == option && cached.hideUnavailable == hideUnavailable) {
             return cached.rows
         }
-        val sorted = sortNodes(group.all, group.delays, option)
+        val sorted = sortNodes(displayNodes, group.delays, option)
         val chunked = sorted.chunked(2).map { it.toPersistentList() }.toPersistentList()
-        rowsCache[group.name] = GroupRowsCacheEntry(group.all, group.delays, option, chunked)
+        rowsCache[group.name] = GroupRowsCacheEntry(group.all, group.delays, option, hideUnavailable, chunked)
         return chunked
     }
 
@@ -345,7 +351,7 @@ fun ProxyScreen(
                                     ListPopupColumn {
                                         DropdownImpl(
                                             text = stringResource(R.string.proxy_single_column),
-                                            optionSize = 2,
+                                            optionSize = 4,
                                             isSelected = singleColumn,
                                             index = 0,
                                             onSelectedIndexChange = {
@@ -355,11 +361,31 @@ fun ProxyScreen(
                                         )
                                         DropdownImpl(
                                             text = stringResource(R.string.proxy_show_group_icons),
-                                            optionSize = 2,
+                                            optionSize = 4,
                                             isSelected = showGroupIcons,
                                             index = 1,
                                             onSelectedIndexChange = {
                                                 viewModel?.updateShowGroupIcons(!showGroupIcons)
+                                                showPopup.value = false
+                                            },
+                                        )
+                                        DropdownImpl(
+                                            text = stringResource(R.string.proxy_hide_unavailable),
+                                            optionSize = 4,
+                                            isSelected = hideUnavailable,
+                                            index = 2,
+                                            onSelectedIndexChange = {
+                                                viewModel?.updateHideUnavailable(!hideUnavailable)
+                                                showPopup.value = false
+                                            },
+                                        )
+                                        DropdownImpl(
+                                            text = stringResource(R.string.proxy_close_connections_on_switch),
+                                            optionSize = 4,
+                                            isSelected = closeConnectionsOnSwitch,
+                                            index = 3,
+                                            onSelectedIndexChange = {
+                                                viewModel?.updateCloseConnectionsOnSwitch(!closeConnectionsOnSwitch)
                                                 showPopup.value = false
                                             },
                                         )
@@ -439,8 +465,15 @@ fun ProxyScreen(
                         val isExpanded = group.name in expandedGroups
                         val rowsPresent = isExpanded || group.name in retainedGroups
                         val isAnimating = group.name in animatingGroups
+                        val displayNodes = if (hideUnavailable) {
+                            group.all.filter {
+                                isBuiltInOutbound(it, group.nodeTypes[it].orEmpty()) || group.delays[it] != -1
+                            }
+                        } else {
+                            group.all
+                        }
                         val allRows = if (rowsPresent) {
-                            getGroupRows(group, sortOption)
+                            getGroupRows(group, displayNodes, sortOption, hideUnavailable)
                         } else {
                             persistentListOf()
                         }
@@ -467,6 +500,7 @@ fun ProxyScreen(
                                 ProxyGroupHeader(
                                     group = group,
                                     showIcon = showGroupIcons,
+                                    visibleNodeCount = displayNodes.size,
                                     isExpanded = isExpanded,
                                     expandProgress = groupProgress,
                                     isTesting = group.name in uiState.testingGroups,
@@ -568,6 +602,7 @@ private fun HoldDownEffect(holdDown: Boolean, interactionSource: MutableInteract
 private fun ProxyGroupHeader(
     group: ProxyGroupUi,
     showIcon: Boolean,
+    visibleNodeCount: Int,
     isExpanded: Boolean,
     expandProgress: FloatState? = null,
     isTesting: Boolean,
@@ -642,7 +677,7 @@ private fun ProxyGroupHeader(
             Spacer(Modifier.width(8.dp))
         }
         Text(
-            text = "${group.all.size}",
+            text = "$visibleNodeCount",
             fontSize = 14.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
@@ -836,6 +871,7 @@ private fun ProxyNodeRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProxyNodeCard(
     name: String,
@@ -870,9 +906,17 @@ private fun ProxyNodeCard(
                 if (isSelectable) {
                     Modifier
                         .squircleSurface(color = backgroundColor, cornerRadius = 12.dp)
-                        .clickable { onClick(name) }
+                        .combinedClickable(
+                            onClick = { onClick(name) },
+                            onLongClick = if (isTesting) null else ({ onTestDelay(name) }),
+                        )
                 } else {
-                    Modifier.squircleBackground(color = backgroundColor, cornerRadius = 12.dp)
+                    Modifier
+                        .squircleBackground(color = backgroundColor, cornerRadius = 12.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = if (isTesting) null else ({ onTestDelay(name) }),
+                        )
                 }
             )
             .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),

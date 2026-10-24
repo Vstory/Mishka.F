@@ -72,7 +72,7 @@ env:
   #   一版本跑。改写脚本按 EXPECT_PACKAGE / FORK_LABEL 取值 ⇒ 改写与门禁单一来源，不会各说各话。
   #   EXPECT_ACTIVITY 钉的是 **namespace 没被动过**：类包一旦被改，manifest 里 `.MainActivity`
   #   这类相对名会解析到不存在的类，产物能装却一开就崩 —— 改包名最容易踩的就是这个坑。
-  EXPECT_PACKAGE: top.yukonga.mishka.fork
+  EXPECT_PACKAGE: top.yukonga.mishka.jieluojun
   FORK_LABEL: Mishka.F
   EXPECT_ACTIVITY: top.yukonga.mishka.MainActivity
   EXPECT_ABI: arm64-v8a

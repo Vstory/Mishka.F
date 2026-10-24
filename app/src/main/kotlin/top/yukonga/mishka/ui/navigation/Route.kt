@@ -59,7 +59,11 @@ sealed interface Route : NavKey {
     data object BackupRestore : Route
 
     @Serializable
-    data class FileManagerEditor(val uuid: String, val relativePath: String) : Route
+    data class FileManagerEditor(
+        val uuid: String,
+        val relativePath: String,
+        val showConfigForm: Boolean = false,
+    ) : Route
 
     @Serializable
     data object AppProxy : Route
