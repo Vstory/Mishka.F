@@ -464,6 +464,12 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             f'const val BACKUP_FILE = "{label}-backup.zip"',
             1,
         ),
+        (
+            f"{KOTLIN_DIR}/data/backup/BackupManager.kt",
+            'private const val TRANSFER_FILE = "mishka-backup-transfer.zip"',
+            f'private const val TRANSFER_FILE = "{label}-backup-transfer.zip"',
+            1,
+        ),
     ]
 
 
