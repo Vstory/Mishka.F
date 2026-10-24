@@ -207,6 +207,7 @@ jobs:
         id: info
         run: |
           echo "short=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           echo "ts=$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
 
       # tag / 页面名 / **产物名** 集中在这里：产物名被三处引用（重命名 / 正文表格 / 清理正则），
