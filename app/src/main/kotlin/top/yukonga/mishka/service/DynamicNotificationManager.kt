@@ -72,6 +72,7 @@ class DynamicNotificationManager(
                 when (tunMode) {
                     TunMode.RootTun -> R.string.settings_tun_mode_root_tun
                     TunMode.RootTproxy -> R.string.settings_tun_mode_root_tproxy
+                    TunMode.RootEbpf -> R.string.settings_tun_mode_root_ebpf
                     TunMode.Vpn -> R.string.settings_tun_mode_vpn
                 }
             )

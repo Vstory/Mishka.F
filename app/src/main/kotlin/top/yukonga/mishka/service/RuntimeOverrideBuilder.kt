@@ -4,6 +4,8 @@ import android.content.Context
 import kotlinx.serialization.json.Json
 import top.yukonga.mishka.domain.model.ConfigurationOverride
 import top.yukonga.mishka.domain.model.DnsOverride
+import top.yukonga.mishka.domain.model.EbpfListenerRole
+import top.yukonga.mishka.domain.model.ListenerOverride
 import top.yukonga.mishka.domain.model.ProfileOverride
 import top.yukonga.mishka.domain.model.TunOverride
 import top.yukonga.mishka.platform.PlatformStorage
@@ -42,6 +44,10 @@ object RuntimeOverrideBuilder {
     // 「通过代理更新订阅」开启且用户未显式配置 mixed-port 时的兜底默认值，
     // 确保 mihomo 一定监听 HTTP 代理端口，让 SubscriptionProxyResolver 稳定解析到
     internal const val DEFAULT_MIXED_PORT = 7890
+
+    private const val EBPF_LISTENER_NAME = "ebpf-in"
+    // shared 数据面取内核默认口径（connect 时按策略分配），比 packet_rewrite 少一层重写
+    private const val EBPF_SHARED_DATA_PLANE = "socket_assign"
 
     private val json = Json {
         encodeDefaults = false
@@ -94,8 +100,8 @@ object RuntimeOverrideBuilder {
                 TunMode.RootTproxy -> RootTproxyApplier.TPROXY_PORT
                 // RootTun：xt_TPROXY 可用 + 用户选 PROXY tether 时开 tproxy 入站（RootTetherHijacker 用）
                 TunMode.RootTun -> if (tproxyForTether) RootTetherHijacker.TPROXY_PORT else userOverride.tproxyPort
-                // Vpn：透传用户 override
-                TunMode.Vpn -> userOverride.tproxyPort
+                // Vpn / RootEbpf：透传用户 override（eBPF 的流量劫持不走 tproxy 端口）
+                TunMode.Vpn, TunMode.RootEbpf -> userOverride.tproxyPort
             },
             // RootTproxy 下**不**注入 routing-mark：Android Netd 用 fwmark 低 16 位编码 netId，
             // mihomo 若带 SO_MARK 会被解释为不存在的 netId，命中 legacy_system 表（无默认路由）
@@ -111,6 +117,7 @@ object RuntimeOverrideBuilder {
                 storage.getString(StorageKeys.VPN_ALLOW_IPV6, "false") == "true",
             ),
             tun = buildTunOverride(context, tunMode, tunFd, userOverride.tun),
+            listeners = if (tunMode == TunMode.RootEbpf) buildEbpfListeners(context, userOverride.listeners) else null,
             profile = ProfileOverride(storeSelected = false, storeFakeIp = true),
         )
         // 原子写：mihomo 紧接着就以 --override-json 读它，半个 JSON 会让启动失败且难以定位
@@ -130,14 +137,49 @@ object RuntimeOverrideBuilder {
         )
     }
 
+    /**
+     * ROOT eBPF 的入站定义：跑内核的 TC 数据面，App 侧只提供开关。
+     *
+     * local/shared 的 enable 必须显式给出——内核在两者都缺省时按 true 处理，
+     * 而 shared 缺接口会直接启动失败。shared.interface 复用 ROOT 设置里的热点接口，
+     * 与 RootTetherHijacker 同一份配置。用户 override 里已有的 listeners 保留在前，避免被整段覆盖。
+     */
+    private fun buildEbpfListeners(context: Context, userListeners: List<ListenerOverride>?): List<ListenerOverride> {
+        val storage = PlatformStorage(context)
+        val localEnabled = storage.getString(StorageKeys.ROOT_EBPF_LOCAL_ENABLE, "true") == "true"
+        val localDataPlane = storage.getString(StorageKeys.ROOT_EBPF_LOCAL_DATA_PLANE, "tc")
+        val sharedEnabled = storage.getString(StorageKeys.ROOT_EBPF_SHARED_ENABLE, "false") == "true"
+        val fakeIpIcmp = storage.getString(StorageKeys.ROOT_EBPF_FAKEIP_ICMP, "off")
+        val interfaces = storage.getString(StorageKeys.ROOT_TETHER_IFACES, "wlan1,wlan2")
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val ebpf = ListenerOverride(
+            name = EBPF_LISTENER_NAME,
+            type = "ebpf",
+            local = EbpfListenerRole(enable = localEnabled, dataPlane = localDataPlane),
+            shared = EbpfListenerRole(
+                enable = sharedEnabled,
+                dataPlane = if (sharedEnabled) EBPF_SHARED_DATA_PLANE else null,
+                interfaces = interfaces.takeIf { sharedEnabled && it.isNotEmpty() },
+            ),
+            fakeipIcmp = fakeIpIcmp,
+        )
+        return buildList {
+            userListeners?.let { addAll(it.filterNot { l -> l.type == "ebpf" }) }
+            add(ebpf)
+        }
+    }
+
     private fun buildTunOverride(
         context: Context,
         tunMode: TunMode,
         tunFd: Int,
         userTun: TunOverride?,
     ): TunOverride {
-        // RootTproxy：TUN 完全关闭，sing-tun 不初始化
-        if (tunMode == TunMode.RootTproxy) {
+        // RootTproxy / RootEbpf：TUN 完全关闭，sing-tun 不初始化
+        // （RootEbpf 的流量劫持由配置里的 ebpf listener 挂 TC 完成，与 TUN 无关）
+        if (tunMode == TunMode.RootTproxy || tunMode == TunMode.RootEbpf) {
             return TunOverride(enable = false)
         }
 

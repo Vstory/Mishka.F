@@ -47,7 +47,8 @@ class PlatformSystemInfo(context: Context) {
                     if (!intf.isUp || intf.isLoopback) return NetworkInfoData()
                     networkInfo(intf.name, intf.inetAddresses.iterator(), isTun = true)
                 }
-                TunMode.RootTproxy -> {
+                // RootEbpf 与 RootTproxy 都没有 App 侧 TUN 设备，状态栏显示当前活动网络
+                TunMode.RootTproxy, TunMode.RootEbpf -> {
                     val network = connectivityManager.activeNetwork ?: return NetworkInfoData()
                     val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return NetworkInfoData()
                     if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) return NetworkInfoData()

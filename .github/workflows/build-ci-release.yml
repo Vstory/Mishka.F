@@ -316,6 +316,23 @@ jobs:
           } >> local.properties
           echo "已按固定密钥配置签名"
 
+      # eBPF 内核分支的 go.mod 与 mishka_core 的依赖图对不上，靠 go.work 把两个模块放进同一
+      #   workspace 解析，go.work.sum 提供校验；缺这步会在 x64 runner 上报 "go: updates to go.mod needed"
+      - name: Prepare Go workspace
+        run: |
+          set -euo pipefail
+          cat > go.work <<'EOF'
+          go 1.25.0
+
+          use (
+          	./app/src/main/native/mishka_core
+          	./mihomo
+          )
+          EOF
+          cp scripts/go.work.sum go.work.sum
+          { echo "/go.work"; echo "/go.work.sum"; } >> .git/info/exclude
+          head -3 go.work
+
       # 每个变体单独调用 gradle ⇒ 可分别注入构建元数据段。versionName 是 defaultConfig 级的、
       #   无法按变体区分，故项目侧 build.gradle.kts 需读取该属性覆盖 versionName：
       #     -PciVersionSuffix="ci-<变体>.<短号>"  ⇒  versionName = "<版本>+ci-<变体>.<短号>"

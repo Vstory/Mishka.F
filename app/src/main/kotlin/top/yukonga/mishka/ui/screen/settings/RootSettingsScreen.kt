@@ -106,6 +106,22 @@ fun RootSettingsScreen(
     // （用户改 TUN_MODE 必须先停代理，不需要热更新）
     val isTproxy = storage.getString(StorageKeys.TUN_MODE, "vpn") == "root_tproxy"
 
+    // eBPF 子模式：App 只暴露开关，listener 参数由 RuntimeOverrideBuilder 注入，
+    // 与 TUN/TPROXY 一样用户不碰配置文件
+    val isEbpf = storage.getString(StorageKeys.TUN_MODE, "vpn") == "root_ebpf"
+    var ebpfLocalEnable by remember {
+        mutableStateOf(storage.getString(StorageKeys.ROOT_EBPF_LOCAL_ENABLE, "true") == "true")
+    }
+    var ebpfDataPlane by remember {
+        mutableStateOf(storage.getString(StorageKeys.ROOT_EBPF_LOCAL_DATA_PLANE, "tc"))
+    }
+    var ebpfSharedEnable by remember {
+        mutableStateOf(storage.getString(StorageKeys.ROOT_EBPF_SHARED_ENABLE, "false") == "true")
+    }
+    var ebpfFakeIpIcmp by remember {
+        mutableStateOf(storage.getString(StorageKeys.ROOT_EBPF_FAKEIP_ICMP, "off") == "reply")
+    }
+
     // xt_TPROXY 内核能力探测结果，仅在 TPROXY submode 或 PROXY 热点模式下显示告警
     val tproxyCapable = storage.getString(StorageKeys.ROOT_TPROXY_KERNEL_CAPABLE, "")
     val showTproxyWarning = tproxyCapable == "false" && (isTproxy || tetherMode == "proxy")
@@ -191,6 +207,63 @@ fun RootSettingsScreen(
                     },
                 ),
             )
+            if (isEbpf) {
+                item { SmallTitle(text = stringResource(R.string.root_section_ebpf)) }
+                val dataPlaneItems = listOf("TC", "cgroup")
+                val dataPlaneValues = listOf("tc", "cgroup")
+                val dataPlaneIndex = dataPlaneValues.indexOf(ebpfDataPlane).coerceAtLeast(0)
+                groupedCardItems(
+                    keyPrefix = "root_ebpf",
+                    outerBottomPadding = 12.dp,
+                    items = listOf(
+                        CardItem("local") {
+                            SwitchPreference(
+                                title = stringResource(R.string.root_ebpf_local_title),
+                                summary = stringResource(R.string.root_ebpf_local_summary),
+                                checked = ebpfLocalEnable,
+                                onCheckedChange = {
+                                    ebpfLocalEnable = it
+                                    storage.putString(StorageKeys.ROOT_EBPF_LOCAL_ENABLE, it.toString())
+                                },
+                            )
+                        },
+                        CardItem("dataPlane") {
+                            OverlayDropdownPreference(
+                                title = stringResource(R.string.root_ebpf_data_plane_title),
+                                summary = dataPlaneItems[dataPlaneIndex],
+                                items = dataPlaneItems,
+                                selectedIndex = dataPlaneIndex,
+                                onSelectedIndexChange = { index ->
+                                    ebpfDataPlane = dataPlaneValues[index]
+                                    storage.putString(StorageKeys.ROOT_EBPF_LOCAL_DATA_PLANE, ebpfDataPlane)
+                                },
+                            )
+                        },
+                        CardItem("shared") {
+                            SwitchPreference(
+                                title = stringResource(R.string.root_ebpf_shared_title),
+                                summary = stringResource(R.string.root_ebpf_shared_summary),
+                                checked = ebpfSharedEnable,
+                                onCheckedChange = {
+                                    ebpfSharedEnable = it
+                                    storage.putString(StorageKeys.ROOT_EBPF_SHARED_ENABLE, it.toString())
+                                },
+                            )
+                        },
+                        CardItem("fakeIpIcmp") {
+                            SwitchPreference(
+                                title = stringResource(R.string.root_ebpf_fakeip_icmp_title),
+                                summary = stringResource(R.string.root_ebpf_fakeip_icmp_summary),
+                                checked = ebpfFakeIpIcmp,
+                                onCheckedChange = {
+                                    ebpfFakeIpIcmp = it
+                                    storage.putString(StorageKeys.ROOT_EBPF_FAKEIP_ICMP, if (it) "reply" else "off")
+                                },
+                            )
+                        },
+                    ),
+                )
+            }
             item { SmallTitle(text = stringResource(R.string.root_section_tether)) }
             if (showTproxyWarning) {
                 item {

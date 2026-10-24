@@ -81,9 +81,14 @@ object StorageKeys {
     // 空串表示「不适用」（BYPASS 模式 / 未启动过 PROXY）。
     const val ROOT_TPROXY_KERNEL_CAPABLE = "root_tproxy_kernel_capable"
 
+    // ROOT eBPF：本机接管、数据面、热点共享（接口复用 ROOT_TETHER_IFACES）、FakeIP ICMP 回复
+    const val ROOT_EBPF_LOCAL_ENABLE = "root_ebpf_local_enable"
+    const val ROOT_EBPF_LOCAL_DATA_PLANE = "root_ebpf_local_data_plane"
+    const val ROOT_EBPF_SHARED_ENABLE = "root_ebpf_shared_enable"
+    const val ROOT_EBPF_FAKEIP_ICMP = "root_ebpf_fakeip_icmp"
+
     // 代理页设置
-    const val PROXY_NODE_SORT_OPTION = "proxy_node_sort_option"
-    const val PROXY_GROUP_SHOW_ICONS = "proxy_group_show_icons"
+    const val PROXY_NODE_SORT_OPTION = "proxy_node_sort_option"    const val PROXY_GROUP_SHOW_ICONS = "proxy_group_show_icons"
 
     // 节点单列显示，默认 false（每行 2 个）
     const val PROXY_NODE_SINGLE_COLUMN = "proxy_node_single_column"

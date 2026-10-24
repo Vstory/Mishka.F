@@ -179,6 +179,8 @@ class HomeViewModel(
 
     private var repository: MihomoRepository? = null
     private var latencyJob: Job? = null
+    // 运行模式即时切换：过渡态等状态落定后再打 PATCH，期间又点一次就取消上一次
+    private var modeApplyJob: Job? = null
     private var connectionRateJob: Job? = null
     private var trafficJob: Job? = null
     private var memoryJob: Job? = null
@@ -697,15 +699,50 @@ class HomeViewModel(
     private fun persistedMode(): String = overrideStore.load().mode?.takeIf { it.isNotBlank() } ?: "--"
 
     /**
-     * 停止态也可切：写 override 与运行态无关，重启交给 [ProxyServiceController.restartWhenReady]
-     * 判定（Stopped/Error 下什么都不做，下次启动自然读到新值），别退回 `restart()`——
-     * 那会把用户没打算启动的代理拉起来。
+     * 切换运行模式（规则 / 全局 / 直连）。
+     *
+     * 运行中走一次 `PATCH /configs` 即时生效——对齐 mihomo_box 模块的「运行模式」：内核不重启、
+     * 启动链不重跑、代理不中断；随后在后台断开存量连接，老长连接会按旧模式继续路由几分钟，
+     * 不主动断开的话用户体感就是「点了切换没生效」。停止态只落 override，下次启动自然读到新值；
+     * 启动/停止过渡态等状态落定后再打 PATCH（重启窗口里配置已定型，直接发会被这次重启覆盖）。
+     * PATCH 失败才回退一次重启（[ProxyServiceController.restartWhenReady]），保证切换最终生效；
+     * 别退回无条件的 `restart()`——那会把用户没打算启动的代理拉起来。
      */
     fun switchMode(mode: String) {
         val current = overrideStore.load()
         overrideStore.save(current.copy(mode = mode))
         _uiState.value = _uiState.value.copy(mode = mode)
-        serviceController.restartWhenReady(getActiveSubscriptionId())
+        modeApplyJob?.cancel()
+        modeApplyJob = when (serviceController.status.value.state) {
+            ProxyState.Running -> viewModelScope.launch { applyModeToLiveCore(mode) }
+
+            ProxyState.Starting, ProxyState.Stopping -> viewModelScope.launch {
+                val settled = serviceController.status.first {
+                    it.state != ProxyState.Starting && it.state != ProxyState.Stopping
+                }
+                if (settled.state == ProxyState.Running) applyModeToLiveCore(mode)
+            }
+
+            ProxyState.Stopped, ProxyState.Error -> null
+        }
+    }
+
+    /**
+     * 把运行模式打到正在跑的内核上（PATCH /configs）。
+     * 内核客户端还没建好（Running 刚发布、连接管理器还在建客户端）或 PATCH 失败时回退一次重启
+     * ——切换模式是用户可见的操作，宁可慢一次也不能静默丢失。
+     */
+    private suspend fun applyModeToLiveCore(mode: String) {
+        val api = repository ?: run {
+            serviceController.restartWhenReady(getActiveSubscriptionId())
+            return
+        }
+        if (api.setMode(mode).isSuccess) {
+            // 后台断存量连接：不阻塞点击响应；失败（内核刚停 / 超时）不影响本次切换
+            viewModelScope.launch { api.closeAllConnections() }
+        } else {
+            serviceController.restartWhenReady(getActiveSubscriptionId())
+        }
     }
 
     fun switchTunStack(stack: String) {

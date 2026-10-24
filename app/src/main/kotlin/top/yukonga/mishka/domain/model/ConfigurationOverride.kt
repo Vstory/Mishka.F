@@ -36,6 +36,8 @@ data class ConfigurationOverride(
     @SerialName("sniffer") val sniffer: SnifferOverride? = null,
     @SerialName("tun") val tun: TunOverride? = null,
     @SerialName("profile") val profile: ProfileOverride? = null,
+    // 仅 ROOT eBPF 注入；其它模式保持 null 以免覆盖配置里已有的 listeners
+    @SerialName("listeners") val listeners: List<ListenerOverride>? = null,
 )
 
 @Serializable
@@ -84,6 +86,26 @@ data class TunOverride(
     @SerialName("mtu") val mtu: Int? = null,
     @SerialName("gso") val gso: Boolean? = null,
     @SerialName("gso-max-size") val gsoMaxSize: Int? = null,
+)
+
+/**
+ * ROOT eBPF 的入站定义。字段名与内核 [sing_ebpf] 的配置键一致（kebab-case），
+ * 直接序列化进 override JSON 的 `listeners` 数组。
+ */
+@Serializable
+data class ListenerOverride(
+    @SerialName("name") val name: String = "ebpf-in",
+    @SerialName("type") val type: String = "ebpf",
+    @SerialName("local") val local: EbpfListenerRole? = null,
+    @SerialName("shared") val shared: EbpfListenerRole? = null,
+    @SerialName("fakeip-icmp") val fakeipIcmp: String? = null,
+)
+
+@Serializable
+data class EbpfListenerRole(
+    @SerialName("enable") val enable: Boolean? = null,
+    @SerialName("data-plane") val dataPlane: String? = null,
+    @SerialName("interface") val interfaces: List<String>? = null,
 )
 
 @Serializable

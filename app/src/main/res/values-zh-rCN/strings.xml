@@ -302,6 +302,16 @@
     <string name="settings_tun_mode_vpn">VPN</string>
     <string name="settings_tun_mode_root_tun">ROOT TUN</string>
     <string name="settings_tun_mode_root_tproxy">ROOT TPROXY</string>
+    <string name="settings_tun_mode_root_ebpf">ROOT eBPF</string>
+    <string name="settings_tun_root_ebpf_summary">eBPF TC 重定向</string>
+    <string name="root_section_ebpf">eBPF</string>
+    <string name="root_ebpf_local_title">本机流量接管</string>
+    <string name="root_ebpf_local_summary">用 eBPF TC 数据面接管本机 App 流量。</string>
+    <string name="root_ebpf_data_plane_title">数据面</string>
+    <string name="root_ebpf_shared_title">热点共享接管</string>
+    <string name="root_ebpf_shared_summary">让热点客户端也走 eBPF 数据面，使用上面的热点接口。</string>
+    <string name="root_ebpf_fakeip_icmp_title">FakeIP ICMP 回复</string>
+    <string name="root_ebpf_fakeip_icmp_summary">在 TC 钩子上直接回应发往 FakeIP 的 ICMP Echo（需 TC 数据面）。</string>
     <string name="settings_vpn_settings">VPN 设置</string>
     <string name="settings_vpn_summary">绕过私有网络、DNS 劫持、IPv6</string>
     <string name="settings_tun_device">TUN 设备名称</string>

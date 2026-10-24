@@ -55,7 +55,8 @@ class MishkaRootService : Service() {
      */
     private enum class Submode(val storageValue: String, val tunMode: TunMode) {
         Tun("tun", TunMode.RootTun),
-        Tproxy("tproxy", TunMode.RootTproxy);
+        Tproxy("tproxy", TunMode.RootTproxy),
+        Ebpf("ebpf", TunMode.RootEbpf);
 
         companion object {
             fun from(value: String?): Submode = entries.firstOrNull { it.storageValue == value } ?: Tun
@@ -181,7 +182,7 @@ class MishkaRootService : Service() {
     }
 
     private fun isRootRunning(mode: TunMode): Boolean =
-        mode == TunMode.RootTun || mode == TunMode.RootTproxy
+        mode == TunMode.RootTun || mode == TunMode.RootTproxy || mode == TunMode.RootEbpf
 
     /**
      * 启动代理。**幂等**：已有启动协程在跑时忽略本次请求。唯一例外是 fresh START 抢占
@@ -501,12 +502,16 @@ class MishkaRootService : Service() {
         attach: Boolean,
     ): Boolean {
         try {
+            // eBPF 的流量劫持由 mihomo 的 ebpf listener 自行挂 TC 完成，App 侧既不写 iptables
+            // 也不劫持 DNS；此时 TUN 已由 override 关闭，任何额外规则都会与内核数据面打架
+            if (submode == Submode.Ebpf) return true
             when (submode) {
                 Submode.Tun -> if (!attach || shouldReapplyOnAttach(storage, RootTetherHijacker::anyRulesPresent)) {
                     if (attach) applyTetherRulesActive(storage, tproxyForTether) else applyTetherRules(storage, tproxyForTether)
                 }
 
                 Submode.Tproxy -> applyTproxyRules(storage)
+                Submode.Ebpf -> {}
             }
             val proxyTether = submode == Submode.Tproxy || RootTetherHijacker.Mode.from(
                 storage.getString(StorageKeys.ROOT_TETHER_MODE, RootTetherHijacker.Mode.BYPASS.storageValue)

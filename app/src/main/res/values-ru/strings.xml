@@ -302,6 +302,16 @@
     <string name="settings_tun_mode_vpn">VPN</string>
     <string name="settings_tun_mode_root_tun">ROOT TUN</string>
     <string name="settings_tun_mode_root_tproxy">ROOT TPROXY</string>
+    <string name="settings_tun_mode_root_ebpf">ROOT eBPF</string>
+    <string name="settings_tun_root_ebpf_summary">Перенаправление через eBPF TC</string>
+    <string name="root_section_ebpf">eBPF</string>
+    <string name="root_ebpf_local_title">Локальный трафик</string>
+    <string name="root_ebpf_local_summary">Перенаправлять трафик этого устройства через eBPF TC.</string>
+    <string name="root_ebpf_data_plane_title">Плоскость данных</string>
+    <string name="root_ebpf_shared_title">Раздача с точки доступа</string>
+    <string name="root_ebpf_shared_summary">Также направлять клиентов точки доступа через eBPF, используя интерфейсы выше.</string>
+    <string name="root_ebpf_fakeip_icmp_title">Ответ ICMP для FakeIP</string>
+    <string name="root_ebpf_fakeip_icmp_summary">Отвечать на ICMP echo для адресов FakeIP на хуке TC (нужна плоскость TC).</string>
     <string name="settings_vpn_settings">Настройки VPN</string>
     <string name="settings_vpn_summary">Обход локальной сети, перехват DNS, IPv6</string>
     <string name="settings_tun_device">Имя устройства TUN</string>

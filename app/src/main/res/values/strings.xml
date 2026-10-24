@@ -304,6 +304,16 @@
     <string name="settings_tun_mode_vpn">VPN</string>
     <string name="settings_tun_mode_root_tun">ROOT TUN</string>
     <string name="settings_tun_mode_root_tproxy">ROOT TPROXY</string>
+    <string name="settings_tun_mode_root_ebpf">ROOT eBPF</string>
+    <string name="settings_tun_root_ebpf_summary">eBPF TC redirect</string>
+    <string name="root_section_ebpf">eBPF</string>
+    <string name="root_ebpf_local_title">Local traffic</string>
+    <string name="root_ebpf_local_summary">Redirect this device's traffic with the eBPF TC data plane.</string>
+    <string name="root_ebpf_data_plane_title">Data plane</string>
+    <string name="root_ebpf_shared_title">Hotspot sharing</string>
+    <string name="root_ebpf_shared_summary">Also route hotspot clients through the eBPF data plane, using the hotspot interfaces above.</string>
+    <string name="root_ebpf_fakeip_icmp_title">FakeIP ICMP reply</string>
+    <string name="root_ebpf_fakeip_icmp_summary">Answer ICMP echo for FakeIP addresses on the TC hook (needs the TC data plane).</string>
     <string name="settings_vpn_settings">VPN Settings</string>
     <string name="settings_vpn_summary">Bypass private network, DNS hijacking, IPv6</string>
     <string name="settings_tun_device">TUN Device Name</string>

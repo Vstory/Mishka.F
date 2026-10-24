@@ -180,24 +180,31 @@ private fun StatusContent(
             }
             Spacer(Modifier.height(12.dp))
             // RootTproxy 下 tun.enable=false，stack 无意义：展示 Inbound=TPROXY:port 静态信息
+            // RootEbpf 同理没有 TUN 与 tproxy 端口，展示 Inbound=eBPF
             val isTproxy = state.tunMode == TunMode.RootTproxy
+            val isEbpf = state.tunMode == TunMode.RootEbpf
+            val isRedirected = isTproxy || isEbpf
             val inboundTproxyLabel = stringResource(R.string.home_inbound_tproxy, TPROXY_INBOUND_PORT)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
                 insideMargin = PaddingValues(16.dp),
-                onClick = { if (isRunning && !isTproxy) showTunStackDialog = true },
-                showIndication = isRunning && !isTproxy,
-                pressFeedbackType = if (isRunning && !isTproxy) PressFeedbackType.Sink else PressFeedbackType.None,
+                onClick = { if (isRunning && !isRedirected) showTunStackDialog = true },
+                showIndication = isRunning && !isRedirected,
+                pressFeedbackType = if (isRunning && !isRedirected) PressFeedbackType.Sink else PressFeedbackType.None,
             ) {
                 Text(
-                    text = if (isTproxy) stringResource(R.string.home_inbound) else stringResource(R.string.home_tun),
+                    text = if (isRedirected) stringResource(R.string.home_inbound) else stringResource(R.string.home_tun),
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 Text(
-                    text = if (isTproxy) inboundTproxyLabel else tunStackLabel(state.tunStack),
+                    text = when {
+                        isTproxy -> inboundTproxyLabel
+                        isEbpf -> "eBPF"
+                        else -> tunStackLabel(state.tunStack)
+                    },
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = MiuixTheme.colorScheme.onSurface,

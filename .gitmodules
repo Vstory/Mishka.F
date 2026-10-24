@@ -1,7 +1,7 @@
 [submodule "mihomo"]
 	path = mihomo
-	url = https://github.com/YuKongA/mihomo.git
-	branch = Mishka
+	url = https://github.com/Vstory/mihomo.git
+	branch = mishka-ebpf3
 [submodule "scripta"]
 	path = scripta
 	url = https://github.com/YuKongA/scripta.git

@@ -225,7 +225,9 @@ tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.con
 
 val mihomoSubmoduleDir = rootProject.layout.projectDirectory.dir("mihomo")
 val mishkaCoreSourceDir = rootProject.layout.projectDirectory.dir("app/src/main/native/mishka_core")
-val mihomoBuildTags = listOf("cmfa", "mishka", "with_gvisor")
+// cmfa 是 YuKongA 内核的 Android 专用 tag；本仓库内核换成 jieluojun Alpha + mishka 补丁，
+// 其 Android 分支由 mishka tag 接管，eBPF 入站需要 with_ebpf 才会编进 libmihomo.so
+val mihomoBuildTags = listOf("mishka", "with_gvisor", "with_ebpf")
 val mihomoVersion = providers.gradleProperty("mihomo.version").orElse("dev").get()
 val mihomoVersionPath = "github.com/metacubex/mihomo/constant.Version"
 val ndkDirectoryProvider = androidComponents.sdkComponents.ndkDirectory
