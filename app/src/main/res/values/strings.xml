@@ -308,7 +308,7 @@
     <string name="settings_tun_root_ebpf_summary">eBPF TC redirect</string>
     <string name="root_section_ebpf">eBPF</string>
     <string name="root_ebpf_local_title">Local traffic</string>
-    <string name="root_ebpf_local_summary">Redirect this device's traffic with the eBPF TC data plane.</string>
+    <string name="root_ebpf_local_summary">Redirect device traffic with the eBPF TC data plane.</string>
     <string name="root_ebpf_data_plane_title">Data plane</string>
     <string name="root_ebpf_shared_title">Hotspot sharing</string>
     <string name="root_ebpf_shared_summary">Also route hotspot clients through the eBPF data plane, using the hotspot interfaces above.</string>
