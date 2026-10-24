@@ -528,15 +528,36 @@ jobs:
           TARGET_TAG: ${{ steps.target.outputs.tag }}
           REPO: ${{ github.repository }}
           COMMIT: ${{ steps.info.outputs.commit }}
+          SHORT: ${{ steps.info.outputs.short }}
+          BRANCH: ${{ github.ref_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # 变更说明：取本次 push 内的提交说明，按「英文行 / 中文行」拆成两块，
+          #   页面固定英文在上、中文在下 ⇒ 提交说明必须同时写两种语言，缺哪块就显示占位。
+          RANGE="${BEFORE}..${COMMIT}"
+          if [ -z "${BEFORE}" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            RANGE="${COMMIT}"
+          fi
+          MSGS="$(git log --reverse --pretty=format:'%s%n%b' "${RANGE}" 2>/dev/null || git log -1 --pretty=format:'%s%n%b')"
+          split_lang() {
+            printf '%s\n' "$MSGS" \
+              | { if [ "$1" = 1 ]; then grep -vP '[\x{4e00}-\x{9fff}]'; else grep -P '[\x{4e00}-\x{9fff}]'; fi || true; } \
+              | sed -E 's/^[[:space:]]*[-*][[:space:]]+//; s/[[:space:]]+$//' \
+              | sed '/^$/d' | sed 's/^/- /'
+          }
+          EN_LINES="$(split_lang 1)"
+          ZH_LINES="$(split_lang 0)"
+          [ -n "$EN_LINES" ] || EN_LINES="-"
+          [ -n "$ZH_LINES" ] || ZH_LINES="-"
           NOTES="$(
-            echo "构建提交 [\`${SHORT}\`](https://github.com/${REPO}/commit/${COMMIT})　·　版本 ${VER}（versionCode ${CODE}）　·　变体 ${VARIANT_LIST}"
+            echo "**Commit** [\`${SHORT}\`](https://github.com/${REPO}/commit/${COMMIT}) · **Branch** \`${BRANCH}\` · **Version** ${VER} (versionCode ${CODE}) · **Variants** ${VARIANT_LIST}"
             echo
-            echo "- 单 ABI \`${EXPECT_ABI}\`（abi splits，非通用包）：装包前确认设备架构；mihomo 核心 \`libmihomo.so\` 由 CI 现编（Go + NDK），不随仓库分发。"
-            echo "- 包名 \`${EXPECT_PACKAGE}\` / 显示名 ${FORK_LABEL}：可与上游原版并存安装、互不影响数据目录；端口、TUN 设备名等沿用上游原值，两版不要同时运行。"
-            echo "- 各包共用同一把固定钥（v2 + v3 签名），debug 与 release 可互相覆盖安装。"
-            echo "- debug 包调试日志最全（由 \`BuildConfig.DEBUG\` 在编译期决定），排障优先用它；release 包与正式版同构建类型（R8 已裁剪），可用来验证 minify/keep 规则。"
+            echo "### Changes"
+            printf '%s\n' "$EN_LINES"
+            echo
+            echo "### 变更内容"
+            printf '%s\n' "$ZH_LINES"
           )"
           if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
             echo "tag $TARGET_TAG 已存在 —— 按重跑处理"
