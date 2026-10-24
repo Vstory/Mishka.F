@@ -451,6 +451,19 @@ def build_edits(app_id: str, label: str) -> list[tuple[str, str, str, int | None
             (f"app/src/main/res/values{suffix}/strings.xml", "127.0.0.1:9090", EXT_CTL, 1)
             for suffix in ("", "-ru", "-zh-rCN", "-zh-rTW")
         ],
+        # 备份文件名带 label：同机装两版时，导出目录与 WebDAV 里分得清谁的备份
+        (
+            f"{KOTLIN_DIR}/ui/screen/settings/BackupRestoreScreen.kt",
+            'return "mishka-backup-$ts.zip"',
+            f'return "{label}-backup-$ts.zip"',
+            1,
+        ),
+        (
+            f"{KOTLIN_DIR}/data/backup/WebDavClient.kt",
+            'const val BACKUP_FILE = "mishka-backup.zip"',
+            f'const val BACKUP_FILE = "{label}-backup.zip"',
+            1,
+        ),
     ]
 
 
@@ -473,6 +486,7 @@ FORBIDDEN = [
     'ROOT_TUN_DEVICE, "Mishka"',
     'DEFAULT_TUN_DEVICE = "Mishka"',
     'APP_NAME = "Mishka"',
+    "mishka-backup",
 ]
 
 
