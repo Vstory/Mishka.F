@@ -88,7 +88,8 @@ object StorageKeys {
     const val ROOT_EBPF_FAKEIP_ICMP = "root_ebpf_fakeip_icmp"
 
     // 代理页设置
-    const val PROXY_NODE_SORT_OPTION = "proxy_node_sort_option"    const val PROXY_GROUP_SHOW_ICONS = "proxy_group_show_icons"
+    const val PROXY_NODE_SORT_OPTION = "proxy_node_sort_option"
+    const val PROXY_GROUP_SHOW_ICONS = "proxy_group_show_icons"
 
     // 节点单列显示，默认 false（每行 2 个）
     const val PROXY_NODE_SINGLE_COLUMN = "proxy_node_single_column"
