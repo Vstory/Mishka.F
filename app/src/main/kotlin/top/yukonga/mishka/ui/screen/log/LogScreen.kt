@@ -202,7 +202,7 @@ fun LogScreen(
                         .overScrollVertical(),
                 ) {
                     item {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(12.dp))
                     }
 
                     if (filteredLogs.isEmpty()) {
@@ -254,7 +254,6 @@ fun LogScreen(
                 contentPadding = PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                 ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (logs.isEmpty()) {
                     item(key = "empty", contentType = "empty") {
@@ -276,7 +275,7 @@ fun LogScreen(
                     }
                 } else {
                     item(key = "top_spacer", contentType = "spacer") {
-                        Spacer(Modifier)
+                        Spacer(Modifier.height(12.dp))
                     }
                 }
 
@@ -289,7 +288,11 @@ fun LogScreen(
                 }
 
                 item(key = "bottom_spacer", contentType = "spacer") {
-                    Spacer(Modifier.navigationBarsPadding())
+                    Spacer(
+                        Modifier
+                            .height(24.dp)
+                            .navigationBarsPadding(),
+                    )
                 }
             }
         }
@@ -359,7 +362,8 @@ private fun LogCard(log: LogMessage) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 12.dp),
         insideMargin = PaddingValues(12.dp),
     ) {
         Column(
