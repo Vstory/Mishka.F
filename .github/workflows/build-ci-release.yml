@@ -531,35 +531,9 @@ jobs:
           COMMIT: ${{ steps.info.outputs.commit }}
           SHORT: ${{ steps.info.outputs.short }}
           BRANCH: ${{ github.ref_name }}
-          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # 变更说明：取本次 push 内的提交说明，按「英文行 / 中文行」拆成两块，
-          #   页面固定英文在上、中文在下 ⇒ 提交说明必须同时写两种语言，缺哪块就显示占位。
-          RANGE="${BEFORE}..${COMMIT}"
-          if [ -z "${BEFORE}" ] || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
-            RANGE="${COMMIT}"
-          fi
-          MSGS="$(git log --reverse --pretty=format:'%s%n%b' "${RANGE}" 2>/dev/null || git log -1 --pretty=format:'%s%n%b')"
-          split_lang() {
-            printf '%s\n' "$MSGS" \
-              | { if [ "$1" = 1 ]; then grep -vP '[\x{4e00}-\x{9fff}]'; else grep -P '[\x{4e00}-\x{9fff}]'; fi || true; } \
-              | sed -E 's/^[[:space:]]*[-*][[:space:]]+//; s/[[:space:]]+$//' \
-              | sed '/^$/d' | sed 's/^/- /'
-          }
-          EN_LINES="$(split_lang 1)"
-          ZH_LINES="$(split_lang 0)"
-          [ -n "$EN_LINES" ] || EN_LINES="-"
-          [ -n "$ZH_LINES" ] || ZH_LINES="-"
-          NOTES="$(
-            echo "**Commit** [\`${SHORT}\`](https://github.com/${REPO}/commit/${COMMIT}) · **Branch** \`${BRANCH}\` · **Version** ${VER} (versionCode ${CODE}) · **Variants** ${VARIANT_LIST}"
-            echo
-            echo "### Changes"
-            printf '%s\n' "$EN_LINES"
-            echo
-            echo "### 变更内容"
-            printf '%s\n' "$ZH_LINES"
-          )"
+          NOTES="**Commit** [\`${SHORT}\`](https://github.com/${REPO}/commit/${COMMIT}) · **Branch** \`${BRANCH}\` · **Version** ${VER} (versionCode ${CODE}) · **Variants** ${VARIANT_LIST}"
           if gh release view "$TARGET_TAG" >/dev/null 2>&1; then
             echo "tag $TARGET_TAG 已存在 —— 按重跑处理"
             gh release edit "$TARGET_TAG" --notes "$NOTES" --prerelease --latest=false
