@@ -5,6 +5,7 @@ import io.ktor.client.engine.ProxyBuilder
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.http.Url
+import kotlinx.coroutines.CancellationException
 import top.yukonga.mishka.data.repository.SubscriptionProxyResolver
 import kotlin.time.TimeSource
 
@@ -28,8 +29,15 @@ class RuleLatencyTester(
         val client = buildClient(proxyUrl, timeoutMillis)
         return try {
             val start = TimeSource.Monotonic.markNow()
-            client.get(url)
-            start.elapsedNow().inWholeMilliseconds.toInt()
+            val response = client.get(url)
+            // 空节点组回退 REJECT 时 mixed-port 会立即返回 502，不能把本地错误响应计为站点延迟。
+            if (response.status.value !in 200..399) {
+                Failed
+            } else {
+                start.elapsedNow().inWholeMilliseconds.toInt()
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Throwable) {
             Failed
         } finally {
@@ -38,11 +46,12 @@ class RuleLatencyTester(
     }
 
     private fun buildClient(proxyUrl: String, timeoutMillis: Long) = HttpClient {
+        expectSuccess = false
         install(HttpTimeout) {
             connectTimeoutMillis = timeoutMillis
             requestTimeoutMillis = timeoutMillis
         }
-        // 跟随 3xx 会把后续跳转的往返一并计进耗时；首个响应到达即视为连通
+        // 3xx 仍表示站点已响应；不跟随跳转，避免把后续往返计入延迟。
         followRedirects = false
         engine { proxy = ProxyBuilder.http(Url(proxyUrl)) }
     }
