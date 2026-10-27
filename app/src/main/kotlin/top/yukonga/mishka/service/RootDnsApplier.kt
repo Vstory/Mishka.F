@@ -160,9 +160,16 @@ internal object RootDnsApplier {
         }
         // 53 的投递改用 nat REDIRECT 到 1053：热点开启时系统 dnsmasq 占着 127.0.0.1:53，
         // listener 若再绑 53 会让 dnsmasq 起不来，系统判定热点异常并把 wlan1 删掉。
+        // IPv6 的 nat 表多数设备没编进内核（ip6tables -t nat 直接报 Table does not exist，退出码 3），
+        // 这一段必须可跳过，否则一条 IPv6 命令就能把整个安装拖垮。
         val natNames = if (ip == "ip -4") "/proc/net/ip_tables_names" else "/proc/net/ip6_tables_names"
         sb.appendLine("dns_nat_snapshot '$xt' '$natNames'")
-        sb.appendLine("if [ -z \"\$dns_nat_state\" ]; then echo 'ROOT DNS requires iptables nat table' >&2; exit 1; fi")
+        if (ip == "ip -4") {
+            sb.appendLine("if [ -z \"\$dns_nat_state\" ]; then echo 'ROOT DNS requires iptables nat table' >&2; exit 1; fi")
+        } else {
+            sb.appendLine("if [ -n \"\$dns_nat_state\" ]; then")
+            checks.appendLine("if [ -n \"\$dns_nat_state\" ]; then")
+        }
         sb.appendLine("$xt -t nat -N $CHAIN_NAT_PRE")
         sb.appendLine("$xt -t nat -N $CHAIN_NAT_OUT")
         for (proto in listOf("udp", "tcp")) {
@@ -182,6 +189,10 @@ internal object RootDnsApplier {
             val args = "-j $chain ${tag("nat-hook-$parent")}"
             sb.appendLine("$xt -t nat -I $parent 1 $args")
             checks.appendLine("$xt -t nat -C $parent $args")
+        }
+        if (ip != "ip -4") {
+            sb.appendLine("fi")
+            checks.appendLine("fi")
         }
     }
 
