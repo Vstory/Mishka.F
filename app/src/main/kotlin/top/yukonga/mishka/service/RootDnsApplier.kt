@@ -11,12 +11,15 @@ import android.util.Log
 internal object RootDnsApplier {
     private const val TAG = "RootDnsApplier"
     const val DNS_PORT = 53
+    const val DNS_LISTEN_PORT = 1053
     internal const val MARK = "0x02000000"
     internal const val MASK = "0x02000000"
     private const val TABLE = 2025
     private const val PRIORITY = 7998
     private const val CHAIN_PRE = "mishka_rootdns_pre"
     private const val CHAIN_OUT = "mishka_rootdns_out"
+    private const val CHAIN_NAT_PRE = "mishka_rootdns_nat_pre"
+    private const val CHAIN_NAT_OUT = "mishka_rootdns_nat_out"
     private const val CHAIN_INPUT = "mishka_rootdns_input"
     private const val CHAIN_INPUT_TEMP = "mishka_rootdns_input_tmp"
     private const val COMMENT_PREFIX = "mishka:dns:"
@@ -155,6 +158,31 @@ internal object RootDnsApplier {
             sb.appendLine("$xt -t $table -I $parent 1 $args")
             checks.appendLine("$xt -t $table -C $parent $args")
         }
+        // 53 的投递改用 nat REDIRECT 到 1053：热点开启时系统 dnsmasq 占着 127.0.0.1:53，
+        // listener 若再绑 53 会让 dnsmasq 起不来，系统判定热点异常并把 wlan1 删掉。
+        val natNames = if (ip == "ip -4") "/proc/net/ip_tables_names" else "/proc/net/ip6_tables_names"
+        sb.appendLine("dns_nat_snapshot '$xt' '$natNames'")
+        sb.appendLine("if [ -z \"\$dns_nat_state\" ]; then echo 'ROOT DNS requires iptables nat table' >&2; exit 1; fi")
+        sb.appendLine("$xt -t nat -N $CHAIN_NAT_PRE")
+        sb.appendLine("$xt -t nat -N $CHAIN_NAT_OUT")
+        for (proto in listOf("udp", "tcp")) {
+            rule("nat", CHAIN_NAT_OUT, "-m owner --uid-owner 0 --gid-owner ${RootHelper.CORE_GID} -j RETURN ${tag("nat-out-core-$proto")}")
+            if (appUid != 0) {
+                rule("nat", CHAIN_NAT_OUT, "-m owner --uid-owner $appUid -j RETURN ${tag("nat-out-app-$proto")}")
+            }
+            rule("nat", CHAIN_NAT_OUT, "-p $proto --dport $DNS_PORT -j REDIRECT --to-ports $DNS_LISTEN_PORT ${tag("nat-out-$proto")}")
+        }
+        for (iface in tetherIfaces) {
+            val escaped = RootHelper.escapeShellSingleQuoted(iface)
+            for (proto in listOf("udp", "tcp")) {
+                rule("nat", CHAIN_NAT_PRE, "-i $escaped -p $proto --dport $DNS_PORT -j REDIRECT --to-ports $DNS_LISTEN_PORT ${tag("nat-pre-$proto")}")
+            }
+        }
+        for ((parent, chain) in listOf("OUTPUT" to CHAIN_NAT_OUT, "PREROUTING" to CHAIN_NAT_PRE)) {
+            val args = "-j $chain ${tag("nat-hook-$parent")}"
+            sb.appendLine("$xt -t nat -I $parent 1 $args")
+            checks.appendLine("$xt -t nat -C $parent $args")
+        }
     }
 
     private fun appendIngressPrepare(sb: StringBuilder, allowedTetherIfaces: List<String>) {
@@ -186,7 +214,7 @@ internal object RootDnsApplier {
         sb.appendLine("$xt -t filter -E $CHAIN_INPUT_TEMP $CHAIN_INPUT")
         appendInputChecks(sb, xt, CHAIN_INPUT, allowedTetherIfaces)
         for (proto in listOf("udp", "tcp")) {
-            sb.appendLine("$xt -t filter -C INPUT -p $proto --dport $DNS_PORT -j $CHAIN_INPUT ${tag("hook-input-$proto")}")
+            sb.appendLine("$xt -t filter -C INPUT -p $proto --dport $DNS_LISTEN_PORT -j $CHAIN_INPUT ${tag("hook-input-$proto")}")
         }
         sb.appendLine("dns_input_state=\$($xt -t filter -S)")
         sb.appendLine("if printf '%s\\n' \"\$dns_input_state\" | grep -Fq '$CHAIN_INPUT_TEMP'; then exit 1; fi")
@@ -219,7 +247,7 @@ internal object RootDnsApplier {
 
     private fun appendInputHooks(sb: StringBuilder, xt: String, chain: String) {
         for (proto in listOf("udp", "tcp")) {
-            val args = "-p $proto --dport $DNS_PORT -j $chain ${tag("hook-input-$proto")}"
+            val args = "-p $proto --dport $DNS_LISTEN_PORT -j $chain ${tag("hook-input-$proto")}"
             sb.appendLine("$xt -t filter -I INPUT 1 $args")
             sb.appendLine("$xt -t filter -C INPUT $args")
         }
@@ -253,10 +281,12 @@ internal object RootDnsApplier {
                 dns_guard_xt=${'$'}1
                 dns_guard_chain=${'$'}2
                 for dns_guard_proto in udp tcp; do
+                    for dns_guard_port in $DNS_PORT $DNS_LISTEN_PORT; do
                     dns_guard_i=0
-                    while [ "${'$'}dns_guard_i" -lt 32 ] && ${'$'}dns_guard_xt -t filter -C INPUT -p "${'$'}dns_guard_proto" --dport $DNS_PORT -j "${'$'}dns_guard_chain" -m comment --comment "${COMMENT_PREFIX}hook-input-${'$'}dns_guard_proto" 2>/dev/null; do
-                        ${'$'}dns_guard_xt -t filter -D INPUT -p "${'$'}dns_guard_proto" --dport $DNS_PORT -j "${'$'}dns_guard_chain" -m comment --comment "${COMMENT_PREFIX}hook-input-${'$'}dns_guard_proto" 2>/dev/null || return 1
+                    while [ "${'$'}dns_guard_i" -lt 32 ] && ${'$'}dns_guard_xt -t filter -C INPUT -p "${'$'}dns_guard_proto" --dport "${'$'}dns_guard_port" -j "${'$'}dns_guard_chain" -m comment --comment "${COMMENT_PREFIX}hook-input-${'$'}dns_guard_proto" 2>/dev/null; do
+                        ${'$'}dns_guard_xt -t filter -D INPUT -p "${'$'}dns_guard_proto" --dport "${'$'}dns_guard_port" -j "${'$'}dns_guard_chain" -m comment --comment "${COMMENT_PREFIX}hook-input-${'$'}dns_guard_proto" 2>/dev/null || return 1
                         dns_guard_i=${'$'}((dns_guard_i+1))
+                    done
                     done
                 done
                 dns_guard_state=${'$'}(${'$'}dns_guard_xt -t filter -S) || return 1
@@ -317,6 +347,12 @@ internal object RootDnsApplier {
         // 旧 DNS NAT hook 无标签，只删除精确匹配的自有 hook 与链。
         val names = if (ip == "ip -4") "/proc/net/ip_tables_names" else "/proc/net/ip6_tables_names"
         sb.appendLine("if dns_nat_snapshot '$xt' '$names' && [ -n \"\$dns_nat_state\" ]; then")
+        removeRule("nat", "OUTPUT", "-j $CHAIN_NAT_OUT ${tag("nat-hook-OUTPUT")}")
+        removeRule("nat", "PREROUTING", "-j $CHAIN_NAT_PRE ${tag("nat-hook-PREROUTING")}")
+        for (chain in listOf(CHAIN_NAT_OUT, CHAIN_NAT_PRE)) {
+            sb.appendLine("$xt -t nat -F $chain 2>/dev/null || true")
+            sb.appendLine("$xt -t nat -X $chain 2>/dev/null || true")
+        }
         removeRule("nat", "PREROUTING", "-j $LEGACY_PRE")
         removeRule("nat", "OUTPUT", "-j $LEGACY_OUT")
         for (chain in listOf(LEGACY_PRE, LEGACY_OUT)) {
@@ -337,7 +373,7 @@ internal object RootDnsApplier {
         sb.appendLine("if printf '%s\\n' \"\$dns_state\" | grep -Eq '$COMMENT_PREFIX|$CHAIN_INPUT|$CHAIN_INPUT_TEMP'; then return 1; fi")
         sb.appendLine("fi")
         sb.appendLine("dns_nat_snapshot '$xt' '$names' || return 1")
-        sb.appendLine("if printf '%s\\n' \"\$dns_nat_state\" | grep -Eq '$LEGACY_PRE|$LEGACY_OUT|mishka:tproxy:dns-'; then return 1; fi")
+        sb.appendLine("if printf '%s\\n' \"\$dns_nat_state\" | grep -Eq '$LEGACY_PRE|$LEGACY_OUT|$CHAIN_NAT_PRE|$CHAIN_NAT_OUT|mishka:tproxy:dns-'; then return 1; fi")
         sb.appendLine("dns_rules=\$($ip rule show) || return 1")
         sb.appendLine("if printf '%s\\n' \"\$dns_rules\" | grep -Eq '^$PRIORITY:[[:space:]].*fwmark 0x2000000/0x2000000.*lookup $TABLE([[:space:]]|\$)'; then return 1; fi")
         sb.appendLine("dns_routes=\$($ip route show table all) || return 1")

@@ -196,7 +196,8 @@ func startRootDNS() (*rootDNSServer, error) {
 	handler.SetService(rootDNSService{owner: server})
 	for _, socket := range sockets {
 		// 保留原生 *net.UDPConn，miekg 才会通过 pktinfo 把原目标地址作为回复源。
-		// socket 自身绑定 53，因此无需 NAT，也不会把回复源端口改成临时端口。
+		// socket 绑定 1053，由 nat REDIRECT 把 53 查询改投过来；回复源端口经 conntrack 反向还原为 53。
+		// 不能直接绑 53：热点开启时系统 dnsmasq 占着 127.0.0.1:53，会与它争抢导致热点被关。
 		server.servers = append(server.servers,
 			&D.Server{
 				PacketConn: socket.udp, Handler: handler.UDPHandler(), UDPSize: D.MaxMsgSize,

@@ -28,7 +28,7 @@ func rootDNSSocketControl(network, address string, raw syscall.RawConn) error {
 
 func listenRootDNS() ([]rootDNSSockets, error) {
 	lc := &net.ListenConfig{Control: rootDNSSocketControl}
-	ipv4, err := bindRootDNSFamily(lc, "4", "0.0.0.0:53")
+	ipv4, err := bindRootDNSFamily(lc, "4", "0.0.0.0:1053")
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func listenRootDNS() ([]rootDNSSockets, error) {
 		return nil, fmt.Errorf("probe ROOT DNS IPv6 support: %w", err)
 	}
 	unix.Close(fd)
-	ipv6, err := bindRootDNSFamily(lc, "6", "[::]:53")
+	ipv6, err := bindRootDNSFamily(lc, "6", "[::]:1053")
 	if err != nil {
 		return nil, err
 	}
