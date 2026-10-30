@@ -68,7 +68,7 @@ class FilePicker(
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "application/zip"
                 putExtra(Intent.EXTRA_TITLE, suggestedName)
-                initialLocation()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+                putInitialLocation(this)
             }
         )
     }
@@ -81,21 +81,36 @@ class FilePicker(
                 addCategory(Intent.CATEGORY_OPENABLE)
                 // 不按 MIME 过滤：备份文件经网盘/传输工具流转后 provider 常报 octet-stream 等杂项类型
                 type = "*/*"
-                initialLocation()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+                putInitialLocation(this)
             }
         )
+    }
+
+    /**
+     * 初始位置要按 picker 分别喂：
+     * - 标准 `EXTRA_INITIAL_URI` 给 DocumentsUI / Google 文件（要求 document URI）。
+     * - `CurrentPath` 是 ColorOS 文件管理的私有 extra，那个 picker 只认文件系统绝对路径，
+     *   拿到 content URI 会当路径用 → 解析失败 → 静默回到存储根。
+     */
+    private fun putInitialLocation(intent: Intent) {
+        initialLocation()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+        initialDirectoryPath()?.let { putExtra("CurrentPath", it) }
     }
 
     // DocumentsUI 只在 intent 没带 EXTRA_INITIAL_URI 时按自己的规则挑初始位置，实际表现就是
     // 每次回到默认根目录——要「回到上次导出的目录」只能由应用自己记住并回传。
     private fun rememberLocation(uri: Uri) {
         storage.putString(StorageKeys.SAF_LAST_URI, (documentParent(uri) ?: uri).toString())
+        storage.putString(StorageKeys.SAF_LAST_DIR_PATH, documentParentPath(uri).orEmpty())
     }
 
     private fun initialLocation(): Uri? =
         storage.getString(StorageKeys.SAF_LAST_URI, "")
             .takeIf { it.isNotEmpty() }
             ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+
+    private fun initialDirectoryPath(): String? =
+        storage.getString(StorageKeys.SAF_LAST_DIR_PATH, "").takeIf { it.isNotEmpty() }
 
     /**
      * 文档 Uri → 所在目录 Uri。external storage 的 document id 形如 `primary:Download/xx.zip`，
@@ -110,6 +125,28 @@ class FilePicker(
         return runCatching {
             DocumentsContract.buildDocumentUri(authority, docId.substring(0, slash))
         }.getOrNull()
+    }
+
+    /**
+     * 文档 Uri → 所在目录的绝对路径，只覆盖 external storage 与 Downloads 的 `raw:` 形式；
+     * `msf:` 这类 MediaStore id 不含路径，返回 null。见 [putInitialLocation] 里为什么需要它。
+     */
+    private fun documentParentPath(uri: Uri): String? {
+        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
+        val sep = docId.indexOf(':')
+        if (sep <= 0) return null
+        val volume = docId.substring(0, sep)
+        // 先剥掉文件名，剩下的是目录在卷内的相对路径；raw: 之后本身就是绝对路径
+        val path = docId.substring(sep + 1).substringBeforeLast('/', missingDelimiterValue = "")
+        val full = when (volume) {
+            "raw" -> path
+            "home" -> "/storage/emulated/0/${path.ifEmpty { "Documents" }}"
+            "primary" -> "/storage/emulated/0/$path"
+            // 卷 id 形式（SD 卡 `1B0F-2A3C:Download/x.zip`）；`msf:1234567890` 这类 MediaStore id
+            // 剥完没有路径段，落到下面的空串判断，不给 picker 一个不存在的目录
+            else -> if (path.isEmpty()) "" else "/storage/$volume/$path"
+        }
+        return full.trimEnd('/').ifEmpty { null }
     }
 
     private fun handleResult(result: ActivityResult) {
