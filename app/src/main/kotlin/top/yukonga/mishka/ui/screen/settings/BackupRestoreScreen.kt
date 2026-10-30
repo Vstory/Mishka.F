@@ -162,10 +162,6 @@ fun BackupRestoreScreen(
             show = showLocalDialog,
             isBusy = uiState.isBusy,
             onDismiss = { showLocalDialog = false },
-            onExportDownloads = {
-                showLocalDialog = false
-                viewModel.exportBackupToDownloads(defaultBackupFileName())
-            },
             onExport = {
                 showLocalDialog = false
                 viewModel.exportBackup { onResult ->
@@ -245,7 +241,6 @@ private fun LocalBackupDialog(
     show: Boolean,
     isBusy: Boolean,
     onDismiss: () -> Unit,
-    onExportDownloads: () -> Unit,
     onExport: () -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -255,20 +250,6 @@ private fun LocalBackupDialog(
         insideMargin = DpSize(0.dp, 24.dp),
         onDismissRequest = onDismiss,
     ) {
-        ArrowPreference(
-            title = stringResource(R.string.backup_export_downloads),
-            startAction = {
-                Icon(
-                    imageVector = MiuixIcons.Backup,
-                    contentDescription = null,
-                    modifier = Modifier.padding(end = 16.dp),
-                    tint = MiuixTheme.colorScheme.onSurface,
-                )
-            },
-            enabled = !isBusy,
-            onClick = onExportDownloads,
-            insideMargin = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-        )
         ArrowPreference(
             title = stringResource(R.string.backup_export_local),
             startAction = {

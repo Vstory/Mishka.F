@@ -565,11 +565,9 @@
     <string name="backup_restore_done_summary">The app needs to restart to load the restored data.</string>
     <string name="backup_restart_now">Restart now</string>
     <string name="backup_section_local">Local backup</string>
-    <string name="backup_export_downloads">Back up to Downloads</string>
-    <string name="backup_export_local">Back up to other file</string>
+    <string name="backup_export_local">Back up to file</string>
     <string name="backup_restore_local">Restore from file</string>
     <string name="backup_export_done">Backup file saved</string>
-    <string name="backup_export_done_path">Saved to Downloads: %1$s</string>
     <string name="backup_section_webdav">WebDAV</string>
     <string name="backup_local_row_summary">Back up to or restore from a file</string>
     <string name="backup_webdav_row_summary">Back up to or restore from a WebDAV server</string>

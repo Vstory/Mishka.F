@@ -563,11 +563,9 @@
     <string name="backup_restore_done_summary">需要重新啟動應用程式以載入還原後的資料。</string>
     <string name="backup_restart_now">立即重新啟動</string>
     <string name="backup_section_local">本機備份</string>
-    <string name="backup_export_downloads">備份至下載目錄</string>
-    <string name="backup_export_local">備份至其它位置</string>
+    <string name="backup_export_local">備份至檔案</string>
     <string name="backup_restore_local">從檔案還原</string>
     <string name="backup_export_done">備份檔案已儲存</string>
-    <string name="backup_export_done_path">已儲存至下載目錄：%1$s</string>
     <string name="backup_section_webdav">WebDAV</string>
     <string name="backup_local_row_summary">備份至檔案或從檔案還原</string>
     <string name="backup_webdav_row_summary">備份至 WebDAV 伺服器或從中還原</string>

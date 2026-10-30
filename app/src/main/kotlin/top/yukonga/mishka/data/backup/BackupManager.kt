@@ -1,10 +1,7 @@
 package top.yukonga.mishka.data.backup
 
-import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
-import android.provider.MediaStore
 import androidx.room3.withWriteTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -105,40 +102,6 @@ class BackupManager(
         val out = context.contentResolver.openOutputStream(uri, "wt")
             ?: throw BackupException("Cannot open $uri for writing")
         out.use { writeBackup(it) }
-    }
-
-    /**
-     * 打包进系统下载目录。
-     *
-     * MediaStore 插入不需要存储权限，也不受 OPEN_DOCUMENT_TREE「Android 11 起不能请求
-     * Download 目录」的限制。IS_PENDING 期间对其它应用不可见，写完才放行，避免半截 zip 被读到。
-     */
-    suspend fun exportToDownloads(displayName: String): Unit = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        val uri = resolver.insert(
-            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-            ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/zip")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
-            },
-        ) ?: throw BackupException("Cannot create $displayName in Downloads")
-        try {
-            resolver.openOutputStream(uri, "w")?.use { writeBackup(it) }
-                ?: throw BackupException("Cannot open $uri for writing")
-            resolver.update(
-                uri,
-                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
-                null,
-                null,
-            )
-            Unit
-        } catch (e: Throwable) {
-            // 半途失败会留下一条永远挂起的 0 字节记录，占着下载列表
-            resolver.delete(uri, null, null)
-            throw e
-        }
     }
 
     /** 打包到普通文件（WebDAV 上传的中转）。 */
