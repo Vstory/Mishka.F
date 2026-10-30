@@ -47,9 +47,12 @@ on:
         default: release
         required: true
 
-# 并发：**不设并发锁** —— 每次 push 都独立出包，任意分支、任意次数都同时构建（要的是
-#   「推了就有包」；排队等前一次跑完、或同分支新推取消旧跑，都会让人拿不到自己那次的产物）。
-# 每个 run 写自己那个 tag 的页面 ⇒ 无共享可变状态，交错无需协调。
+# 并发：同一分支只留最新一次 —— 新提交直接取消该分支上仍在跑的旧构建（省钱，也不会出现
+#   「旧提交的包比新提交晚产出」的错序）。每个 run 写自己那个 tag 的页面 ⇒ 无共享可变状态，
+#   取消只意味着旧提交拿不到产物，不会碰到已发布的页面。
+concurrency:
+  group: build-ci-release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write   # 发布 Release 需要写权限
