@@ -118,10 +118,8 @@ object StorageKeys {
     const val WEBDAV_PASSWORD = "webdav_password"
 
     // 上次 SAF 备份导出/导入落点的目录 Uri，作为下次 EXTRA_INITIAL_URI 的初始位置。
-    // 同一次落点还会拆出绝对路径存 SAF_LAST_DIR_PATH：ColorOS 文件管理只认路径不认 Uri。
-    // 两者都是设备态：指向的 provider 路径跨设备多半不存在，且与「本机文件在哪」绑定，不进备份
+    // 设备态：指向的 provider 路径跨设备多半不存在，且与「本机文件在哪」绑定，不进备份
     const val SAF_LAST_URI = "saf_last_uri"
-    const val SAF_LAST_DIR_PATH = "saf_last_dir_path"
 }
 
 class PlatformStorage(context: Context) {
