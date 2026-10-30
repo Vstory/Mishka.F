@@ -115,6 +115,37 @@ jobs:
           # mihomo（Go 核心源码）+ scripta（settings.gradle.kts 的 includeBuild）缺一即编不出来
           submodules: recursive
 
+      # 被 concurrency 取消的 run 停在「页面已建、包没传完」时，job 不会再执行任何收尾步骤
+      #   （取消会跳过后续所有 step，`if: always()` 也救不回来）⇒ 残页只能由**后续 run** 顺手清。
+      #   判据：release 的 target_commitish 命中一个「只跑过 cancelled、从未 success」的 head sha
+      #   —— 那是一个已被新提交取代的产物页，连 tag 一起删；同一提交重跑成功过的则留着。
+      - name: Sweep release pages of cancelled runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          rows=$(gh run list --workflow build-ci-release.yml --limit 100 \
+                   --json headSha,conclusion \
+                   --jq '.[] | "\(.headSha) \(.conclusion)"' || true)
+          # 有 success 的 sha 一律不算死提交（同一个提交可能先被取消、随后重跑成功）
+          dead=$(printf '%s\n' "$rows" | awk '
+                   $2 == "success"   { ok[$1] = 1 }
+                   $2 == "cancelled" { seen[$1] = 1 }
+                   END { for (s in seen) if (!(s in ok)) print s }')
+          if [ -z "${dead//[[:space:]]/}" ]; then
+            echo "没有「只被取消过」的提交，跳过"
+            exit 0
+          fi
+          gh api "repos/${REPO}/releases?per_page=100" \
+            --jq '.[] | select(.prerelease) | "\(.target_commitish)\t\(.tag_name)\t\(.assets|length)"' \
+          | while IFS=$'\t' read -r sha tag assets; do
+              grep -qxF "$sha" <<<"$dead" || continue
+              echo "::notice::清理被取消运行的产物页 ${tag}（资产 ${assets} 个）"
+              gh api -X DELETE "repos/${REPO}/releases/tags/${tag}" || true
+              gh api -X DELETE "repos/${REPO}/git/refs/tags/${tag}" || true
+            done
+
       # CI 出包只改身份四件套：包名 / 显示名 / Gradle 产物名前缀 / 关于页的 fork 条目（外加包名
       #   连带的开机自启组件名）。端口、TUN 设备名、iptables chain / fwmark / route table、进程
       #   匹配模式一律沿用上游原值 —— 设备上只装这一版、不与上游同时安装或同时运行。
