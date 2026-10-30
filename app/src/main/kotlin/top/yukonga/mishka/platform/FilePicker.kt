@@ -93,8 +93,8 @@ class FilePicker(
      *   拿到 content URI 会当路径用 → 解析失败 → 静默回到存储根。
      */
     private fun putInitialLocation(intent: Intent) {
-        initialLocation()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
-        initialDirectoryPath()?.let { putExtra("CurrentPath", it) }
+        initialLocation()?.let { intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+        initialDirectoryPath()?.let { intent.putExtra("CurrentPath", it) }
     }
 
     // DocumentsUI 只在 intent 没带 EXTRA_INITIAL_URI 时按自己的规则挑初始位置，实际表现就是
