@@ -76,6 +76,8 @@ fun BackupRestoreScreen(
     var showWebDavDialog by remember { mutableStateOf(false) }
     // 恢复来源（本地文件 / WebDAV）共用同一个覆盖确认对话框，确认后执行挂起的动作
     var pendingRestoreAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // 备份落点目录：授权一次后直接写，不再弹 picker（Android 12 起 picker 没有目录浏览入口）
+    var saveDirLabel by remember { mutableStateOf(filePicker?.backupDirectoryLabel()) }
 
     val backdrop = rememberBlurBackdrop()
     val blurActive = backdrop != null
@@ -162,10 +164,26 @@ fun BackupRestoreScreen(
             show = showLocalDialog,
             isBusy = uiState.isBusy,
             onDismiss = { showLocalDialog = false },
+            saveDirLabel = saveDirLabel,
+            onChangeDir = {
+                filePicker.pickBackupDirectory { tree ->
+                    if (tree != null) saveDirLabel = filePicker.backupDirectoryLabel()
+                }
+            },
             onExport = {
-                showLocalDialog = false
-                viewModel.exportBackup { onResult ->
-                    filePicker.createZipDocument(defaultBackupFileName(), onResult)
+                val directory = filePicker.backupDirectory()
+                if (directory != null) {
+                    showLocalDialog = false
+                    viewModel.exportBackup(directory, defaultBackupFileName())
+                } else {
+                    // 还没有落点目录：先授权，选完立即导出这一次
+                    filePicker.pickBackupDirectory { tree ->
+                        if (tree != null) {
+                            saveDirLabel = filePicker.backupDirectoryLabel()
+                            showLocalDialog = false
+                            viewModel.exportBackup(tree, defaultBackupFileName())
+                        }
+                    }
                 }
             },
             onRestore = {
@@ -240,7 +258,9 @@ fun BackupRestoreScreen(
 private fun LocalBackupDialog(
     show: Boolean,
     isBusy: Boolean,
+    saveDirLabel: String?,
     onDismiss: () -> Unit,
+    onChangeDir: () -> Unit,
     onExport: () -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -262,6 +282,13 @@ private fun LocalBackupDialog(
             },
             enabled = !isBusy,
             onClick = onExport,
+            insideMargin = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+        )
+        ArrowPreference(
+            title = stringResource(R.string.backup_save_dir),
+            summary = saveDirLabel ?: stringResource(R.string.backup_save_dir_unset),
+            enabled = !isBusy,
+            onClick = onChangeDir,
             insideMargin = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
         )
         ArrowPreference(

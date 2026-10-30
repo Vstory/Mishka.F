@@ -564,6 +564,8 @@
     <string name="backup_restart_now">立即重新啟動</string>
     <string name="backup_section_local">本機備份</string>
     <string name="backup_export_local">備份至檔案</string>
+    <string name="backup_save_dir">儲存位置</string>
+    <string name="backup_save_dir_unset">未選擇</string>
     <string name="backup_restore_local">從檔案還原</string>
     <string name="backup_export_done">備份檔案已儲存</string>
     <string name="backup_section_webdav">WebDAV</string>

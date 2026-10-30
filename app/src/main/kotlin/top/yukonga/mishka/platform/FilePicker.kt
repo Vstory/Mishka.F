@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
@@ -12,7 +11,6 @@ import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 
-private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
 
 /**
  * 文件选择结果
@@ -47,12 +45,64 @@ class FilePicker(
     // === 二进制备份文档（WebDAV 本地备份同款 zip）===
     // 只负责拿 Uri：备份可达数十 MB，读写留给数据层在 IO 上流式完成，不在这条主线程回调里搬内容
 
-    private var saveCallback: ((Uri?) -> Unit)? = null
-    private val saveLauncher = activity.registerForActivityResult(DocumentUriContract()) { uri ->
-        val cb = saveCallback
-        saveCallback = null
-        uri?.let { rememberLocation(it) }
-        cb?.invoke(uri)
+    // === 备份落点目录（授权一次，之后不再弹 picker）===
+    // Android 12 起 DocumentsUI 不再提供「进入某个目录浏览」的入口，EXTRA_INITIAL_URI 因此
+    // 无处落点（ColorOS 的文件管理器同理），「每次回到上次目录」不可实现。只能反过来：
+    // 让用户把目录本身授权下来，导出直接往这棵目录树里建文件。
+    private var sessionDirectory: Uri? = null
+    private var dirCallback: ((Uri?) -> Unit)? = null
+    private val dirLauncher = activity.registerForActivityResult(DocumentUriContract()) { uri ->
+        val cb = dirCallback
+        dirCallback = null
+        // 个别 OEM 的 picker 对 OPEN_DOCUMENT_TREE 回普通 document Uri，那种 Uri 建不了子文档
+        val tree = uri?.takeIf { runCatching { DocumentsContract.isTreeUri(it) }.getOrDefault(false) }
+        tree?.let { rememberBackupDirectory(it) }
+        cb?.invoke(tree)
+    }
+
+    /** 让用户授权备份落点目录；回调 null 表示取消。 */
+    fun pickBackupDirectory(onResult: (Uri?) -> Unit) {
+        dirCallback = onResult
+        dirLauncher.launch(
+            Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                )
+                // 尽力而为：picker 认不认这个初始位置随系统
+                backupDirectory()?.let { putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
+            }
+        )
+    }
+
+    /** 已授权的备份目录；授权被系统/用户撤销后返回 null，调用方需要重新授权。 */
+    fun backupDirectory(): Uri? {
+        sessionDirectory?.let { return it }
+        val remembered = storage.getString(StorageKeys.SAF_BACKUP_DIR_URI, "")
+            .takeIf { it.isNotEmpty() }
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            ?: return null
+        val writable = activity.contentResolver.persistedUriPermissions.any {
+            it.isWritePermission && it.uri == remembered
+        }
+        return remembered.takeIf { writable }
+    }
+
+    /** 备份目录的显示名（tree document id 的末段，如 `primary:Download` → Download）。 */
+    fun backupDirectoryLabel(): String? = backupDirectory()
+        ?.let { runCatching { DocumentsContract.getTreeDocumentId(it) }.getOrNull() }
+        ?.substringAfterLast(':')
+        ?.takeIf { it.isNotEmpty() }
+
+    private fun rememberBackupDirectory(uri: Uri) {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        val persisted = runCatching {
+            activity.contentResolver.takePersistableUriPermission(uri, flags)
+        }.isSuccess
+        // provider 不给持久化授权时仍留在内存里：本次运行可用，重启后再授权一次
+        sessionDirectory = uri
+        if (persisted) storage.putString(StorageKeys.SAF_BACKUP_DIR_URI, uri.toString())
     }
 
     private var pickCallback: ((Uri?) -> Unit)? = null
@@ -61,19 +111,6 @@ class FilePicker(
         pickCallback = null
         uri?.let { rememberLocation(it) }
         cb?.invoke(uri)
-    }
-
-    /** 经 SAF 新建文档作为写入目标；回调 null 表示用户取消。 */
-    fun createZipDocument(suggestedName: String, onResult: (Uri?) -> Unit) {
-        saveCallback = onResult
-        saveLauncher.launch(
-            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                addCategory(Intent.CATEGORY_OPENABLE)
-                type = "application/zip"
-                putExtra(Intent.EXTRA_TITLE, suggestedName)
-                putInitialLocation(this)
-            }
-        )
     }
 
     /** 经 SAF 选择已有文档；回调 null 表示用户取消。 */
@@ -89,36 +126,20 @@ class FilePicker(
         )
     }
 
-    /**
-     * 只传标准 `EXTRA_INITIAL_URI`。ColorOS 的 picker（com.coloros.filemanager）拿到它后
-     * `Uri.parse` → `isDocumentUri` / `isRootUri` 判定 → 取 docId 的 `split(":")[1]` 拼成
-     * `/storage/emulated/0/<tail>`；判定落空就静默回默认位置。所以这里必须是 external storage
-     * 的 document URI —— 它另有个私有 `CurrentPath` extra 读纯路径，且优先级更高，
-     * 塞个 `/storage/...` 进去会让上面这条判定整个落空。
-     */
+    // 尽力而为：picker 认不认这个初始位置随系统（Android 12 起它本身已没有目录浏览入口）。
     private fun putInitialLocation(intent: Intent) {
         initialLocation()?.let { intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, it) }
     }
 
-    // DocumentsUI 与 ColorOS 文件管理都不会自己记住上次落点，要「回到上次导出的目录」
-    // 只能由应用记住并回传。
+    // 导入侧只求「尽量靠近上次的位置」：picker 本身不保证，存个父目录 Uri 尽力而为。
     private fun rememberLocation(uri: Uri) {
-        storage.putString(StorageKeys.SAF_LAST_URI, canonicalDirectoryUri(uri).toString())
+        storage.putString(StorageKeys.SAF_LAST_URI, (documentParent(uri) ?: uri).toString())
     }
 
     private fun initialLocation(): Uri? =
         storage.getString(StorageKeys.SAF_LAST_URI, "")
             .takeIf { it.isNotEmpty() }
             ?.let { runCatching { Uri.parse(it) }.getOrNull() }
-
-    /**
-     * 归一化成 external storage 的目录 document URI：picker 侧只能解析这种形态。
-     * 网盘等 provider 的 Uri 推不出目录时，退回「父目录 Uri → 原 Uri」。
-     */
-    private fun canonicalDirectoryUri(uri: Uri): Uri {
-        val path = documentParentPath(uri)
-        return path?.let { directoryDocumentUri(it) } ?: documentParent(uri) ?: uri
-    }
 
     /**
      * 文档 Uri → 所在目录 Uri。external storage 的 document id 形如 `primary:Download/xx.zip`，
@@ -132,48 +153,6 @@ class FilePicker(
         return runCatching {
             DocumentsContract.buildDocumentUri(authority, docId.substring(0, slash))
         }.getOrNull()
-    }
-
-    /** 目录绝对路径 → external storage 的 document URI（picker 唯一认得的形态）。 */
-    private fun directoryDocumentUri(path: String): Uri? {
-        val primary = Environment.getExternalStorageDirectory().absolutePath
-        val (volume, relative) = when {
-            path == primary -> "primary" to ""
-            path.startsWith("$primary/") -> "primary" to path.removePrefix("$primary/")
-            else -> {
-                // SD 卡之类 `/storage/<卷 id>/<相对路径>`；emulated/<userId> 不在猜测范围
-                val match = Regex("^/storage/([^/]+)/(.+)$").find(path) ?: return null
-                val name = match.groupValues[1]
-                if (name == "emulated") return null
-                name to match.groupValues[2]
-            }
-        }
-        val docId = if (relative.isEmpty()) "$volume:" else "$volume:$relative"
-        return runCatching {
-            DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_AUTHORITY, docId)
-        }.getOrNull()
-    }
-
-    /**
-     * 文档 Uri → 所在目录的绝对路径，只覆盖 external storage（`primary:` / `home:` / 卷 id / `raw:`）。
-     * 其余 provider（网盘等）返回 null。
-     */
-    private fun documentParentPath(uri: Uri): String? {
-        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
-        val sep = docId.indexOf(':')
-        if (sep <= 0) return null
-        val volume = docId.substring(0, sep)
-        val rest = docId.substring(sep + 1)
-        // 先剥掉文件名，剩下的是目录在卷内的相对路径；raw: 之后本身就是绝对路径
-        val path = rest.substringBeforeLast('/', missingDelimiterValue = "")
-        val full = when (volume) {
-            "raw" -> path
-            "home" -> "/storage/emulated/0/${path.ifEmpty { "Documents" }}"
-            "primary" -> "/storage/emulated/0/$path"
-            // 卷 id 形式（SD 卡 `1B0F-2A3C:Download/x.zip`）；扫不出路径段就当未知
-            else -> if (path.isEmpty()) "" else "/storage/$volume/$path"
-        }
-        return full.trimEnd('/').ifEmpty { null }
     }
 
     private fun handleResult(result: ActivityResult) {
@@ -210,10 +189,9 @@ class FilePicker(
 }
 
 /**
- * SAF 透传合约：Intent 由调用方组装，只解析返回文档的 Uri。
+ * SAF 透传合约：Intent 由调用方组装，只解析返回的 Uri。
  *
- * 系统自带的 CreateDocument / OpenDocument 合约把 intent 拼死了（只设 type 与 EXTRA_TITLE），
- * 没留口子附加 EXTRA_INITIAL_URI —— 而「回到上次的目录」全押在这个 extra 上。
+ * 系统自带的合约把 intent 拼死了（只设 type 与 EXTRA_TITLE），没留口子加 extra。
  */
 private class DocumentUriContract : ActivityResultContract<Intent, Uri?>() {
     override fun createIntent(context: Context, input: Intent): Intent = input

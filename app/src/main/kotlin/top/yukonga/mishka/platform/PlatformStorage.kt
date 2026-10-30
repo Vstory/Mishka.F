@@ -120,6 +120,9 @@ object StorageKeys {
     // 上次 SAF 备份导出/导入落点的目录 Uri，作为下次 EXTRA_INITIAL_URI 的初始位置。
     // 设备态：指向的 provider 路径跨设备多半不存在，且与「本机文件在哪」绑定，不进备份
     const val SAF_LAST_URI = "saf_last_uri"
+
+    // 备份落点目录树 Uri（OPEN_DOCUMENT_TREE 授权 + 持久化权限）。同样是设备态，不进备份
+    const val SAF_BACKUP_DIR_URI = "saf_backup_dir_uri"
 }
 
 class PlatformStorage(context: Context) {

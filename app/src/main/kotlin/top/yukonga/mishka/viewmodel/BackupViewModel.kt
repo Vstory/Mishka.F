@@ -10,7 +10,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import top.yukonga.mishka.R
 import top.yukonga.mishka.data.backup.BackupManager
 import top.yukonga.mishka.data.backup.WebDavClient
@@ -77,14 +76,11 @@ class BackupViewModel(
     }
 
     /**
-     * 本地导出：[pickTarget] 弹 SAF CreateDocument 拿目标文档，写入由 BackupManager 流式完成。
-     * 用户取消（Uri 为 null）不提示。
+     * 本地导出：目标目录由 [directory] 给出（已授权的目录树），文件名固定为本次时间戳。
+     * 目录授权在 UI 侧完成，这里只管写盘。
      */
-    fun exportBackup(pickTarget: (onResult: (Uri?) -> Unit) -> Unit) = runBusy {
-        val uri = suspendCancellableCoroutine<Uri?> { cont ->
-            pickTarget { result -> cont.resume(result) }
-        } ?: return@runBusy
-        backupManager.exportTo(uri)
+    fun exportBackup(directory: Uri, fileName: String) = runBusy {
+        backupManager.exportToDirectory(directory, fileName)
         showToast(context.getString(R.string.backup_export_done))
     }
 

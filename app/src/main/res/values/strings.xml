@@ -566,6 +566,8 @@
     <string name="backup_restart_now">Restart now</string>
     <string name="backup_section_local">Local backup</string>
     <string name="backup_export_local">Back up to file</string>
+    <string name="backup_save_dir">Save to</string>
+    <string name="backup_save_dir_unset">Not set</string>
     <string name="backup_restore_local">Restore from file</string>
     <string name="backup_export_done">Backup file saved</string>
     <string name="backup_section_webdav">WebDAV</string>

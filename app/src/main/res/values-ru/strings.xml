@@ -564,6 +564,8 @@
     <string name="backup_restart_now">Перезапустить сейчас</string>
     <string name="backup_section_local">Локальная копия</string>
     <string name="backup_export_local">Сохранить в файл</string>
+    <string name="backup_save_dir">Сохранить в</string>
+    <string name="backup_save_dir_unset">Не выбрано</string>
     <string name="backup_restore_local">Восстановить из файла</string>
     <string name="backup_export_done">Файл резервной копии сохранен</string>
     <string name="backup_section_webdav">WebDAV</string>

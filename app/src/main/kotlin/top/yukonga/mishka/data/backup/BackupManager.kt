@@ -2,6 +2,7 @@ package top.yukonga.mishka.data.backup
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.room3.withWriteTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -97,11 +98,42 @@ class BackupManager(
         get() = File(context.filesDir, "mihomo")
 
     /** 打包到 SAF 文档。 */
-    suspend fun exportTo(uri: Uri) = withContext(Dispatchers.IO) {
+    /**
+     * 写进已授权的目录树。Android 12 起 picker 不再提供目录浏览入口，只能靠授权目录树定位，
+     * 所以导出走 createDocument 而不是让用户每次在 picker 里找目录。
+     */
+    suspend fun exportToDirectory(treeUri: Uri, fileName: String) = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        // 同名文件已存在时 provider 会直接抛 FileAlreadyExists，先删掉再建
+        findChild(treeUri, fileName)?.let { runCatching { DocumentsContract.deleteDocument(resolver, it) } }
+        val document = DocumentsContract.createDocument(resolver, treeUri, "application/zip", fileName)
+            ?: throw BackupException("Cannot create $fileName in $treeUri")
         // "wt" 截断写：目标文档已存在且比新内容长时，默认模式会残留旧尾部导致 zip 损坏
-        val out = context.contentResolver.openOutputStream(uri, "wt")
-            ?: throw BackupException("Cannot open $uri for writing")
+        val out = resolver.openOutputStream(document, "wt")
+            ?: throw BackupException("Cannot open $document for writing")
         out.use { writeBackup(it) }
+    }
+
+    private fun findChild(treeUri: Uri, fileName: String): Uri? {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri),
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+        )
+        val cursor = runCatching {
+            context.contentResolver.query(children, projection, null, null, null)
+        }.getOrNull() ?: return null
+        return cursor.use {
+            while (it.moveToNext()) {
+                if (it.getString(1) == fileName) {
+                    return DocumentsContract.buildDocumentUriUsingTree(treeUri, it.getString(0))
+                }
+            }
+            null
+        }
     }
 
     /** 打包到普通文件（WebDAV 上传的中转）。 */
@@ -408,6 +440,7 @@ class BackupManager(
             StorageKeys.WIFI_POLICY_RUNTIME_MODE,
             StorageKeys.MIGRATION_ROOT_RECLAIM_DONE,
             StorageKeys.SAF_LAST_URI,
+            StorageKeys.SAF_BACKUP_DIR_URI,
             StorageKeys.WEBDAV_URL,
             StorageKeys.WEBDAV_USERNAME,
             StorageKeys.WEBDAV_PASSWORD,
