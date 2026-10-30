@@ -116,6 +116,10 @@ object StorageKeys {
     const val WEBDAV_URL = "webdav_url"
     const val WEBDAV_USERNAME = "webdav_username"
     const val WEBDAV_PASSWORD = "webdav_password"
+
+    // 上次 SAF 备份导出/导入落点的目录 Uri，作为下次 EXTRA_INITIAL_URI 的初始位置。
+    // 设备态：指向的 provider 路径跨设备多半不存在，且与「本机文件在哪」绑定，不进备份
+    const val SAF_LAST_URI = "saf_last_uri"
 }
 
 class PlatformStorage(context: Context) {

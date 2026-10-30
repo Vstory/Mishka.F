@@ -407,6 +407,7 @@ class BackupManager(
             StorageKeys.WIFI_POLICY_PENDING_RESTART,
             StorageKeys.WIFI_POLICY_RUNTIME_MODE,
             StorageKeys.MIGRATION_ROOT_RECLAIM_DONE,
+            StorageKeys.SAF_LAST_URI,
             StorageKeys.WEBDAV_URL,
             StorageKeys.WEBDAV_USERNAME,
             StorageKeys.WEBDAV_PASSWORD,

@@ -176,7 +176,7 @@ class MainActivity : ComponentActivity() {
             wifiPermissionCallback = null
         }
         serviceController.setVpnPermissionLauncher(vpnPermissionLauncher)
-        filePicker = FilePicker(this)
+        filePicker = FilePicker(this, storage)
         val wifiPolicyController: WifiPolicyController = get()
         // Wi-Fi 策略 reconcile：备份恢复/force-stop 后 pref 与组件位、服务状态脱节，按 pref 幂等拉起
         if (storage.getString(StorageKeys.WIFI_POLICY_ENABLED, "false") == "true" &&
