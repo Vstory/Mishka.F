@@ -77,7 +77,16 @@ class BackupViewModel(
     }
 
     /**
-     * 本地导出：[pickTarget] 弹 SAF CreateDocument 拿目标文档，写入由 BackupManager 流式完成。
+     * 本地导出到系统下载目录：不弹系统选择器，直接写 MediaStore。
+     * 想存到别处走 [exportBackup]。
+     */
+    fun exportBackupToDownloads(fileName: String) = runBusy {
+        backupManager.exportToDownloads(fileName)
+        showToast(context.getString(R.string.backup_export_done_path, fileName))
+    }
+
+    /**
+     * 本地导出（另存为）：[pickTarget] 弹 SAF CreateDocument 拿目标文档，写入由 BackupManager 流式完成。
      * 用户取消（Uri 为 null）不提示。
      */
     fun exportBackup(pickTarget: (onResult: (Uri?) -> Unit) -> Unit) = runBusy {

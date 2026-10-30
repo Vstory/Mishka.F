@@ -563,9 +563,11 @@
     <string name="backup_restore_done_summary">需要重启应用以加载恢复后的数据。</string>
     <string name="backup_restart_now">立即重启</string>
     <string name="backup_section_local">本地备份</string>
-    <string name="backup_export_local">备份到文件</string>
+    <string name="backup_export_downloads">备份到下载目录</string>
+    <string name="backup_export_local">备份到其它位置</string>
     <string name="backup_restore_local">从文件恢复</string>
     <string name="backup_export_done">备份文件已保存</string>
+    <string name="backup_export_done_path">已保存到下载目录：%1$s</string>
     <string name="backup_section_webdav">WebDAV</string>
     <string name="backup_local_row_summary">备份到文件或从文件恢复</string>
     <string name="backup_webdav_row_summary">备份到 WebDAV 服务器或从中恢复</string>
