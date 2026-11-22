@@ -1,23 +1,23 @@
-# Miuix 0.9.5-beta01 Glass 通用迁移指南
+# Miuix 0.9.5-beta01 ~ beta03 Glass 迁移指南
 
-本文档面向基于 Compose + miuix 的应用，提供从传统 miuix 组件迁移到 **miuix 0.9.5-beta01 Glass** 设计体系的通用方案、架构要点与常见踩坑清单。
-
----
-
-## 1. 依赖配置
-
-在 `libs.versions.toml` 中引入 Glass 相关模块：
-
-- `miuix-glass`：`GlassTopAppBar`、`GlassNavigationBar`、`GlassNavigationRail`、`GlassIconButton`、`GlassDialog`、`GlassBottomSheet`、`GlassDropdownPreference`、`GlassSegmentedTabRow`、`GlassIconDropdownMenu` / `GlassTransformPopup` 等。
-- `miuix-glass-icons`：`MiuixIcons.Glass.*`（如 `HomeOutline`、`SettingsOutline`、`ChevronBackward`、`More`、`Search` 等），建议搭配 `GlassIconButton` 使用（图标尺寸通常为 `28.dp`）。
-- `miuix-blur`：`LayerBackdrop`、`rememberLayerBackdrop`、`layerBackdrop`、`isRuntimeShaderSupported` 等背景采样与实时模糊原语。
+面向 Compose + miuix 应用的通用迁移参考，涵盖组件替换、采样架构与关键踩坑约束。
 
 ---
 
-## 2. 背景采样与模糊基础
+## 1. 依赖引入
 
-### 2.1 不透明底色录制
-- 创建 `backdrop` 时必须先绘制不透明背景再 `drawContent()`，否则列表透明区域会导致玻璃表面采样到透明/黑底或产生叠加伪影：
+在 `libs.versions.toml` 中引入：
+
+- `miuix-glass`：顶栏、底栏、侧边栏、按钮、标签栏、弹窗与抽屉等 Glass 组件。
+- `miuix-glass-icons`：`MiuixIcons.Glass.*` 图标集（与 `GlassIconButton` 搭配，默认 `28.dp`）。
+- `miuix-blur`：`LayerBackdrop`、`rememberLayerBackdrop`、`layerBackdrop`、`isRuntimeShaderSupported`。
+
+---
+
+## 2. 背景采样与降级
+
+### 2.1 不透明底色与隔离原则
+- 录制 `backdrop` 时必须先绘制不透明底色再 `drawContent()`，避免列表透明区域采样出黑底或残影：
   ```kotlin
   val surfaceColor = MiuixTheme.colorScheme.surface
   val backdrop = rememberLayerBackdrop {
@@ -25,80 +25,85 @@
       drawContent()
   }
   ```
-- **严格隔离玻璃表面自身**：被采样的 `layerBackdrop` 中绝不能包含消费它的玻璃组件本身，否则会产生递归采样反馈循环。
+- **禁止自采样**：被采样的 `layerBackdrop` 内绝不能包含消费它的玻璃组件本身。
 
-### 2.2 分级采样宿主（`PageBackdropBox`）
-- 页面内部通常需要两层采样源：
-  1. **页面局部 `backdrop`**：仅录制正文列表，供页面自己的 `GlassTopAppBar` / `GlassNavigationBar` 采样；当 `GlassTopAppBar` 开启 `progressiveBlur` 时外层不要再叠一层高斯模糊，否则双重模糊发灰。
-  2. **整页 `PageBackdropBox`（`LocalPageBackdrop`）**：包在页面 `Scaffold` 最外层（包含正文 + 顶底栏），专供 `GlassDialog`、`GlassBottomSheet`、`GlassDropdownPreference`、`GlassIconDropdownMenu` 等全屏浮层采样。
-- **Miuix `Scaffold` 依赖**：`GlassDialog`、`GlassBottomSheet` 与 `GlassDropdownPreference` 依赖 Miuix `Scaffold` 提供的弹窗宿主，不能放在完全脱离 Miuix `Scaffold` 的根容器中。
+### 2.2 两级采样宿主
+- **页面局部 `backdrop`**：仅录制正文列表，供 `GlassTopAppBar` / `GlassNavigationBar` 采样；`GlassTopAppBar` 开启 `progressiveBlur` 时外层不要再叠高斯模糊。
+- **整页 `PageBackdropBox`（`LocalPageBackdrop`）**：包在 Miuix `Scaffold` 最外层（含正文与顶底栏），专供 `GlassDialog`、`GlassBottomSheet`、`GlassDropdownPreference`、`GlassIconDropdownMenu` 等浮层采样。
+- **宿主依赖**：`GlassDialog`、`GlassBottomSheet`、`GlassDropdownPreference` 依赖 Miuix `Scaffold`，不可脱离其使用。
 
-### 2.3 设备兼容与无模糊降级
-- `RuntimeShader` 仅在受支持设备（如 Android 13+）可用，启用模糊前必须检查 `isRuntimeShaderSupported()`。
-- 当硬件不支持或用户关闭模糊时，让 `rememberBlurBackdrop()` 返回 `null`：
-  - `GlassTopAppBar` / `GlassNavigationBar` / `GlassNavigationRail` 收到 `backdrop = null` 时自动回退到纯色填充。
-  - `GlassSegmentedTabRow` 等组件应同步将 `surfaceAlpha` 降为 `0f` 或使用纯色底，避免半透明底色无模糊时文字透底发花。
+### 2.3 无模糊降级
+- 必须以 `isRuntimeShaderSupported()` 门控模糊；不支持或用户关闭时，将 `backdrop` 置 `null`（组件自动回退纯色底），并将 `GlassSegmentedTabRow` 等的 `surfaceAlpha` 设为 `0f`。
 
 ---
 
-## 3. 顶栏与底栏迁移
+## 3. 组件替换清单
 
-### 3.1 顶栏（`GlassTopAppBar`）
-- 使用 `GlassTopAppBar` 替代原版 `TopAppBar` / `SmallTopAppBar`：
-  - 传入 `backdrop`、`progressiveBlur`、`bandBrush = GlassTopAppBarDefaults.bandBrush(surface)`、`bandOverhang = GlassTopAppBarDefaults.BandOverhang`。
-  - 返回按钮与操作按钮统一使用 `GlassIconButton` + `MiuixIcons.Glass.*`。
-- **禁止裁剪溢出**：`bandOverhang` 背景带、按钮阴影（`GlassShadows.Regular`）与折叠标题模糊均向布局边界外绘制，**不要**在顶栏或其直接父容器上加 `clipToBounds()`。
-- **弹性越界联动**：配合 `overScrollVertical` 时，需将 `overScrollVertical(onOffsetChanged = { scrollBehavior.state.overscrollOffset = it })` 放在 `.nestedScroll(...)` 之前（或同时传 `isContentScrolled = listState.canScrollBackward`），确保越界回弹时按钮与背景带材质同步响应。
-- **分段标签间距**：若 `bottomContent` 中包含 `GlassSegmentedTabRow`（通常自带底部外边距），正文列表首项不要重复叠加顶部 `Spacer`，否则会出现双倍空白。
+| 旧组件 | 新组件 | 关键注意事项 |
+| --- | --- | --- |
+| `TopAppBar` / `SmallTopAppBar` | `GlassTopAppBar` | 父容器禁止 `clipToBounds()`（会切掉 `bandOverhang` 渐隐带与阴影）；配合 `overScrollVertical(onOffsetChanged = { scrollBehavior.state.overscrollOffset = it })` 置于 `.nestedScroll(...)` 前；`bottomContent` 含 `GlassSegmentedTabRow` 时列表顶部不加重复 `Spacer` |
+| `NavigationBar` | `GlassNavigationBar` | 图标切换为 `MiuixIcons.Glass.*`；未开模糊时 `backdrop = null` |
+| `IosLiquidGlassNavigationBar` | 补水平安全区 inset | 外层 `BoxWithConstraints` 增加 `WindowInsets.displayCutout.union(WindowInsets.navigationBars).only(WindowInsetsSides.Horizontal)` |
+| `NavigationRail` | `GlassNavigationRail` | 见第 4 节 |
+| `IconButton` / `MiuixIcons.Back` | `GlassIconButton` + `MiuixIcons.Glass.*` | 图标尺寸 `28.dp` |
+| `WindowListPopup` | `GlassIconDropdownMenu` / `GlassTransformPopup` | 锚点按钮加 `.glassPopupAnchor(anchor)`，内部 `Icon` **必须**加 `.glassPopupAnchorContent(anchor)`，否则变形动画时原图标不隐藏且错位 |
+| `TabRow` | `GlassSegmentedTabRow` | 传入 `backdrop` 与 `surfaceAlpha`；置于顶栏 `bottomContent` 时静止态设为 `0f`（`if (blurActive && contentUnderTopBar) 1f else 0f`） |
+| `WindowDialog` | `GlassDialog` | 传入 `backdrop = LocalPageBackdrop.current`；内部按钮同步换为 `GlassDialogButton`（`Normal` / `Primary`） |
+| `WindowBottomSheet` | `GlassBottomSheet` | 传入 `backdrop = LocalPageBackdrop.current` |
+| `TextField`（`GlassDialog` 内） | `GlassTextField` | 与 `GlassDialogButton` 共用 `onBackground` 半透明底色体系 |
 
-### 3.2 窄屏底栏（`GlassNavigationBar`）
-- 使用 `GlassNavigationBar` 替代固定底栏 `NavigationBar`，图标统一切换为 `MiuixIcons.Glass.*`。
-- 若同时支持 iOS 液态玻璃底栏等自定义方案，建议统一图标集与显示语义，避免风格割裂。
-
----
-
-## 4. 宽屏侧边栏（`GlassNavigationRail`）架构
-
-### 4.1 持久化层级与跨层弹窗（`TopLayer`）
-- **外置防遮挡**：**不要**把 `GlassNavigationRail` 放在 `NavDisplay` 的主页面（`Route.Main`）内部，否则进入二级页面时侧边栏会被新页面盖住。
-- **推荐层级结构**（自下而上）：
-  1. `Box(Modifier.layerBackdrop(sidebarBackdrop))` 包裹 `NavDisplay`（录制全应用界面供侧边栏毛玻璃采样）。
-  2. `GlassNavigationRail`（同级置于 `NavDisplay` 上方）。
-  3. `TopLayerHost(topLayer)`（同级置于最顶层）。
-- **`TopLayer` 提升弹窗**：`GlassIconDropdownMenu` / `GlassTransformPopup` 默认在页面树内按窗口坐标绘制，会位于 `NavDisplay` 内部从而被外置 `GlassNavigationRail` 遮挡。因此页面内的弹出菜单需通过 `TopLayer { ... }` 提升到 `TopLayerHost` 渲染。
-- **二级页导航交互**：
-  - 处于非主页面且不在侧栏直达项中时，将 `selectedIndex` 设为 `-1`（避免误高亮且允许点击当前所属 Tab 项回到主页）。
-  - 从二级页点击侧栏切换回主 Tab 时，配合 0ms 无动画过渡 `InstantNavTransition`（在短暂延迟后复位）执行 `popUntil { it is Route.Main }`，再切页，避免出现退场滑移动画与切页动画打架。
-  - 宽屏下可将 `NavDisplayEffects(cornerClipRadius = 0.dp)` 置零，避免多窗格过渡裁剪出设备圆角黑边。
-
-### 4.2 全屏背景延伸与内容动态缩进
-- **不要**在 `NavDisplay` 外层容器上使用 `.layout { ... }` 裁剪或右移整个容器——这会把所有页面的背景、渐变与顶栏模糊在侧边栏处硬截断。
-- **正确做法**：
-  - `NavDisplay` 保持 `Modifier.fillMaxSize()` 全屏铺满。
-  - 通过 `CompositionLocal` 下发侧边栏动态缩进与折叠标题透明度：
-    - `LocalTopBarStartInset`：`{ (GlassNavigationRailDefaults.Margin + GlassNavigationRailDefaults.ExpandedWidth) * railState.progress }`
-    - `LocalTopAppBarTitleAlpha`：`{ railState.progress }`
-  - 顶栏通过 `contentModifier` 应用起始缩进（`GlassTopAppBar` 背景仍全宽绘制）；列表正文与全屏覆盖层（如 `GlassSearchOverlay`）各自在内部应用起始缩进。
-- **折叠态顶部避让**：`GlassNavigationRail` 折叠后居中悬浮于顶栏正上方。除设置 `titleAlpha = { railState.progress }` 隐藏被盖住的标题外，在刚达宽屏阈值（如 600dp 左右）的窄窗格下，顶栏右侧操作按钮不宜过多，以免与居中的折叠胶囊重叠。
+> **圆角与材质**：所有 `miuix-glass` 组件默认已内置 `GlassShape`，无需额外传 `RoundedCornerShape` 或覆盖 `shape`。
 
 ---
 
-## 5. 弹出菜单变形动画
+## 4. 宽屏侧边栏（`GlassNavigationRail`）
 
-- 使用 `GlassIconDropdownMenu` / `GlassTransformPopup` 时，锚点按钮必须成对设置修饰符：
-  1. 按钮容器：`GlassIconButton(modifier = Modifier.glassPopupAnchor(anchor, cornerRadius = GlassTopAppBarDefaults.ButtonSize / 2))`
-  2. 按钮图标：`Icon(modifier = Modifier.size(28.dp).glassPopupAnchorContent(anchor))`
-- **常见错误**：漏掉 `glassPopupAnchorContent(anchor)` 会导致展开/收起变形动画期间原图标未隐藏，并在按钮左上角产生残影与位置偏移。
+### 4.1 持久化层级与跨层弹窗
+将 `GlassNavigationRail` 放在 `NavDisplay` **外层 `Box`** 中，避免进入二级页面时被遮挡。自下而上层级：
+1. `Box(Modifier.layerBackdrop(sidebarBackdrop)) { NavDisplay(...) }`
+2. `GlassNavigationRail(...)`
+3. `TopLayerHost(topLayer)`（页面内的 `GlassIconDropdownMenu` 等窗口坐标弹窗需通过 `TopLayer { ... }` 提升至此层，否则会被外置侧边栏盖住）
+
+导航行为：
+- 二级页面期间将 `selectedIndex` 设为 `-1`。
+- 从二级页点击侧边栏切换 Tab 时，先启用 0ms 无动画过渡 `InstantNavTransition`（短暂延迟后复位）并 `popUntil { it is Route.Main }`。
+- 宽屏下可将 `NavDisplayEffects(cornerClipRadius = 0.dp)` 置零。
+
+### 4.2 全屏背景延伸与内容避让
+- **不要**在 `NavDisplay` 外层用 `.layout` 裁剪或右移容器，否则背景与顶栏模糊会被硬截断。
+- `NavDisplay` 保持 `Modifier.fillMaxSize()` 全屏铺满，通过 `CompositionLocal` 下发动态值：
+  - `LocalTopBarStartInset`：`{ (GlassNavigationRailDefaults.Margin + GlassNavigationRailDefaults.ExpandedWidth) * railState.progress }`
+  - `LocalTopAppBarTitleAlpha`：`{ railState.progress }`（折叠态胶囊居中于顶栏上方时淡出标题；刚过宽屏阈值时顶栏右侧按钮不宜过多，以免与胶囊重叠）
+  - `LocalTopAppBarCenterObstructionStart`：使用 `compositionLocalOf`（而非 `staticCompositionLocalOf`）以免折叠态胶囊变化触发全树重组；折叠态侧边栏（`!railState.expanded && collapsedWidth > 0.dp`）提供 `railState.collapsedStart` 给 `GlassTopAppBar` / `TopAppBar` 的 `centerObstructionStart`，主 Tab（`Route.Main`）内覆盖为 `Dp.Unspecified`
+- 顶栏通过 `contentModifier`、正文与全屏覆盖层（如 `GlassSearchOverlay`）各自应用起始缩进，实现「背景全屏、内容避让」。
 
 ---
 
-## 6. 关键工程红线 Checklist
+## 5. 工程红线 Checklist
 
-1. **`layerBackdrop` 必须先于 `inset` / `padding`（模糊错位根因）**：
-   - `Modifier.layerBackdrop(backdrop)` **必须**位于 `windowInsetsPadding`、`horizontalCutoutPadding()`、`sidebarStartInset()` **之前**（紧跟 `.fillMaxSize()`）。
-   - 若置于 `inset` 之后，录制的 `GraphicsLayer` 尺寸会被缩窄且起点向右偏移；而 `GlassTopAppBar` 从 `(0, 0)` 全宽采样，横竖屏切换或侧边栏展开/收起时必然出现矩形截断与模糊错位。
-2. **禁止在组合期读取每帧变化的状态**：
-   - `railState.progress`、`scrollBehavior.state.contentOffset` 等帧率级数值**严禁**在组合期用 `by` 解包或直接传给 `Modifier.padding(dp)`，否则动画/滚动期间整页每帧重组。
-   - 必须以 lambda（`() -> Float` / `() -> Dp`）透传至 `layout { ... }`、`graphicsLayer { ... }`、`titleAlpha` 或绘制阶段读取。
-3. **防止起始缩进重复叠加**：
-   - 若 `AdaptiveTopAppBar` 内部已读取 `LocalTopBarStartInset`，外部传入的 `contentModifier`（如同时需要处理刘海安全区时）必须关闭侧栏缩进，避免顶栏内容偏移两倍。
+1. **`layerBackdrop` 必须先于 `inset` / `padding`**：
+   `Modifier.layerBackdrop(backdrop)` 必须放在 `windowInsetsPadding`、`horizontalCutoutPadding()`、`sidebarStartInset()` **之前**（紧跟 `.fillMaxSize()`）。否则录制层尺寸被缩窄并右偏，导致横竖屏切换或侧边栏展开/收起时顶栏模糊错位与矩形截断。
+2. **禁止组合期读取帧率级状态**：
+   `railState.progress`、`scrollBehavior.state.contentOffset` 等每帧变化的值严禁在组合期用 `by` 解包或直接传给 `Modifier.padding(dp)`，必须以 lambda 透传至 `layout` / `graphicsLayer` / `draw` / `titleAlpha` 阶段读取。
+3. **避免起始缩进重复叠加**：
+   顶栏内部已消费 `LocalTopBarStartInset` 时，外部传入的 `contentModifier`（如同时处理刘海安全区）需关闭侧栏缩进，防止双倍偏移。
+4. **滚动阈值防抖**：
+   判断 `isContentScrolled` 时使用 `scrollBehavior.state.contentOffset < -1f || scrollBehavior.state.overscrollOffset < -1f`（而非 `< 0f`），避免亚像素或回弹边缘抖动误触发，同时保证页面不足一页向上越界时顶栏模糊与按钮材质能正常浮起；即使显式传入 `listState.canScrollBackward` 也应叠加 `overscrollOffset < -1f`。
+
+---
+
+## 6. Compose 1.13.0 与渲染细节（0.9.5-beta02 同步）
+
+- **状态与动画新 API**：`derivedStateOf` 迁移至 `computedStateOf`；`AnimatedVisibility` 迁移至 `CapturedAnimatedVisibility`。
+- **输入框状态化**：`TextField` / `BasicTextField` 统一使用 `TextFieldState`（`rememberTextFieldState`、`TextFieldLineLimits.SingleLine`、`onKeyboardAction`、`decorator`）；字符长度限制用 `maxLengthReject` / `maxLengthTrim` 替代已废弃的 `maxLength`。
+- **容器尺寸基准**：根部用 `BoxWithConstraints(Modifier.fillMaxSize())` 注入 `LocalContainerSize`，宽屏与视口计算优先读取它再回退 `LocalWindowInfo.current.containerSize`。
+- **分段卡片防漏缝**：自绘分段卡片（`CardSegment`）在 `!isLast && bottomCornerRadius == 0.dp && color.alpha == 1f` 时向下 `drawBehind` 延伸 2px，避免 0.5x 降采样 RenderNode 光栅化产生抗锯齿黑缝。
+
+---
+
+## 7. 0.9.5-beta03 同步要点
+
+- **顶栏透明带与越界驱动**：`GlassTopAppBar` 移除 100ms mask 渐隐延迟的旧 `visualContentOffset` 路径（保留非折叠态 100ms 线性过渡，折叠态随 `collapsedFraction`），`overscrollOffset < -1f` 直接参与驱动渐进模糊与按钮悬浮材质。
+- **`GlassSegmentedTabRow` 静止不透明度**：列表内或未滚动的顶栏 `bottomContent` 中应保持 `surfaceAlpha = 0f`，滚动/越界后再切至 `1f`，避免静止态误显遮罩。
+- **侧栏与路由重组优化**：`LocalTopAppBarCenterObstructionStart` 使用 `compositionLocalOf`，传入 `LocalTopAppBarTitleAlpha` 与 `LocalTopBarStartInset` 的 lambda 需以 `remember(railState)` / 顶层常量稳定引用；`LazyColumn` 中的多行静态偏好卡统一拆分为 `groupedCardItems`（按行 item）。
+- **图标与弹窗规范**：全量使用 `MiuixIcons.Glass.*`（原生 `28.dp`，超大水印图标建议自建矢量路径）；`GlassDialog` 内输入框使用 `GlassTextField`，嵌套 `Card` 可采用 `onBackground.copy(alpha = if (isDark) 36f / 255f else 15f / 255f)` 保持浅/深色与动态取色下的通透对比度。

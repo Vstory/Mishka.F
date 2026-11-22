@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -25,7 +24,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.computedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +57,7 @@ import top.yukonga.mishka.ui.component.blur.rememberBlurEnabled
 import top.yukonga.mishka.ui.component.effect.BgEffectBackground
 import top.yukonga.mishka.ui.component.overScrollVertical
 import top.yukonga.mishka.ui.theme.LocalAppDarkMode
+import top.yukonga.mishka.ui.util.LocalHorizontalCutoutSides
 import top.yukonga.mishka.ui.util.horizontalCutoutPadding
 import top.yukonga.mishka.ui.util.sidebarStartInset
 import top.yukonga.miuix.kmp.basic.Card
@@ -90,7 +90,7 @@ fun AboutScreen(
     // 滚动进度是帧率级 State：保持 State 形式，读点限制在 topBar 与各 graphicsLayer，
     // 组合期以值读取会让整个 AboutContent 每帧重组
     val scrollProgressState = remember {
-        derivedStateOf {
+        computedStateOf {
             when {
                 lazyListState.firstVisibleItemIndex > 0 -> 1f
 
@@ -106,9 +106,9 @@ fun AboutScreen(
         }
     }
     // 布尔/夹紧后再 derive，等值去重让顶栏只在阈值区间内重组
-    val heroCollapsed by remember { derivedStateOf { scrollProgressState.value == 1f } }
+    val heroCollapsed by remember { computedStateOf { scrollProgressState.value == 1f } }
     val titleAlpha by remember {
-        derivedStateOf { ((scrollProgressState.value - 0.35f) / 0.65f).coerceIn(0f, 1f) }
+        computedStateOf { ((scrollProgressState.value - 0.35f) / 0.65f).coerceIn(0f, 1f) }
     }
 
     val backdrop = rememberBlurBackdrop()
@@ -131,7 +131,7 @@ fun AboutScreen(
         },
         contentWindowInsets = WindowInsets.systemBars
             .add(WindowInsets.displayCutout)
-            .only(WindowInsetsSides.Horizontal),
+            .only(LocalHorizontalCutoutSides.current),
     ) { innerPadding ->
         Box(modifier = if (backdrop != null) Modifier.layerBackdrop(backdrop) else Modifier) {
             AboutContent(

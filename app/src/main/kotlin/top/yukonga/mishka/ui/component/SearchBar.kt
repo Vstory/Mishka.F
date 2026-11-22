@@ -1,6 +1,6 @@
 package top.yukonga.mishka.ui.component
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.CapturedAnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -31,12 +31,16 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -51,7 +55,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
@@ -63,8 +66,8 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.basic.Search
-import top.yukonga.miuix.kmp.icon.basic.SearchCleanup
+import top.yukonga.miuix.kmp.icon.glass.Clear
+import top.yukonga.miuix.kmp.icon.glass.Search
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 
 /**
@@ -150,7 +153,7 @@ fun SearchStatus.SearchPager(
                     expandBar(searchStatus, onSearchStatusChange, searchBarTopPadding)
                 }
             }
-            AnimatedVisibility(
+            CapturedAnimatedVisibility(
                 visible = searchStatus.isExpand() || searchStatus.isAnimatingExpand(),
                 enter = expandHorizontally() + slideInHorizontally(initialOffsetX = { it }),
                 exit = shrinkHorizontally() + slideOutHorizontally(targetOffsetX = { it }),
@@ -177,7 +180,7 @@ fun SearchStatus.SearchPager(
                 )
             }
         }
-        AnimatedVisibility(
+        CapturedAnimatedVisibility(
             visible = searchStatus.isExpand(),
             modifier = Modifier
                 .fillMaxSize()
@@ -204,21 +207,27 @@ fun SearchBar(
     searchBarTopPadding: () -> Dp = { 12.dp },
 ) {
     val focusRequester = remember { FocusRequester() }
-    var textFieldValue by remember { mutableStateOf(TextFieldValue(searchStatus.searchText)) }
+    val textState = rememberTextFieldState(initialText = searchStatus.searchText)
+    val currentSearchStatus by rememberUpdatedState(searchStatus)
+    val currentOnSearchStatusChange by rememberUpdatedState(onSearchStatusChange)
 
     LaunchedEffect(searchStatus.searchText) {
-        if (textFieldValue.text != searchStatus.searchText) {
-            textFieldValue = TextFieldValue(searchStatus.searchText)
+        if (textState.text.toString() != searchStatus.searchText) {
+            textState.setTextAndPlaceCursorAtEnd(searchStatus.searchText)
+        }
+    }
+
+    LaunchedEffect(textState) {
+        snapshotFlow { textState.text.toString() }.collect { text ->
+            if (text != currentSearchStatus.searchText) {
+                currentOnSearchStatusChange(currentSearchStatus.copy(searchText = text))
+            }
         }
     }
 
     BasicTextField(
-        value = textFieldValue,
-        onValueChange = {
-            textFieldValue = it
-            onSearchStatusChange(searchStatus.copy(searchText = it.text))
-        },
-        singleLine = true,
+        state = textState,
+        lineLimits = TextFieldLineLimits.SingleLine,
         textStyle = TextStyle(
             fontWeight = FontWeight.Medium,
             fontSize = 17.sp,
@@ -234,13 +243,13 @@ fun SearchBar(
             .heightIn(min = 45.dp)
             .background(colorScheme.surfaceContainerHigh, CircleShape)
             .focusRequester(focusRequester),
-        decorationBox = { innerTextField ->
+        decorator = { innerTextField ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = MiuixIcons.Basic.Search,
+                    imageVector = MiuixIcons.Glass.Search,
                     contentDescription = null,
                     modifier = Modifier
                         .size(44.dp)
@@ -250,13 +259,13 @@ fun SearchBar(
                 Box(modifier = Modifier.weight(1f)) {
                     innerTextField()
                 }
-                AnimatedVisibility(
+                CapturedAnimatedVisibility(
                     searchStatus.searchText.isNotEmpty(),
                     enter = fadeIn() + scaleIn(),
                     exit = fadeOut() + scaleOut(),
                 ) {
                     Icon(
-                        imageVector = MiuixIcons.Basic.SearchCleanup,
+                        imageVector = MiuixIcons.Glass.Clear,
                         tint = colorScheme.onSurface,
                         contentDescription = null,
                         modifier = Modifier
@@ -266,7 +275,7 @@ fun SearchBar(
                                 interactionSource = null,
                                 indication = null,
                             ) {
-                                textFieldValue = TextFieldValue("")
+                                textState.clearText()
                                 onSearchStatusChange(searchStatus.copy(searchText = ""))
                             },
                     )
@@ -296,7 +305,7 @@ fun SearchBarFake(
         label = label,
         leadingIcon = {
             Icon(
-                imageVector = MiuixIcons.Basic.Search,
+                imageVector = MiuixIcons.Glass.Search,
                 contentDescription = null,
                 modifier = Modifier
                     .size(44.dp)
