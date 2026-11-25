@@ -32,6 +32,7 @@ import top.yukonga.mishka.platform.NetworkAddressType
 import top.yukonga.mishka.platform.PlatformSystemInfo
 import top.yukonga.mishka.platform.ProxyServiceController
 import top.yukonga.mishka.platform.ProxyState
+import top.yukonga.mishka.platform.StartupProgress
 import top.yukonga.mishka.platform.TunMode
 import top.yukonga.mishka.platform.showToast
 import top.yukonga.mishka.util.FormatUtils
@@ -164,6 +165,7 @@ class HomeViewModel(
     // 秒；-1 表示尚未启动/已重置（UI 层格式化时转为空串）
     private val _uptimeState = MutableStateFlow(-1L)
     val uptimeState: StateFlow<Long> = _uptimeState.asStateFlow()
+    val startupProgress: StateFlow<StartupProgress?> = serviceController.startupProgress
 
     // 折线图的滑动窗口缓冲，仅在 viewModelScope(Main) 的 traffic collect 内访问，无需加锁
     private val upHistory = ArrayDeque<Long>(TRAFFIC_HISTORY_CAPACITY)
@@ -207,6 +209,7 @@ class HomeViewModel(
                 when (status.state) {
                     ProxyState.Starting -> {
                         _uiState.value = _uiState.value.copy(
+                            isRunning = false,
                             isStarting = true,
                             isStopping = false,
                             tunMode = status.tunMode,
@@ -217,6 +220,7 @@ class HomeViewModel(
                     ProxyState.Running -> {
                         _uiState.value = _uiState.value.copy(
                             isStarting = false,
+                            isStopping = false,
                             isRestarting = false,
                             isRunning = true,
                             tunMode = status.tunMode,
@@ -227,7 +231,11 @@ class HomeViewModel(
                     }
 
                     ProxyState.Stopping -> {
-                        _uiState.value = _uiState.value.copy(isRunning = false, isStopping = true)
+                        _uiState.value = _uiState.value.copy(
+                            isRunning = false,
+                            isStarting = false,
+                            isStopping = true,
+                        )
                     }
 
                     ProxyState.Stopped -> {

@@ -92,6 +92,7 @@
     <string name="refresh_complete">Refresh complete</string>
     <string name="common_more">More</string>
     <string name="common_close">Close</string>
+    <string name="common_copy">Copy</string>
     <string name="common_delete">Delete</string>
     <string name="common_edit">Edit</string>
     <string name="common_update">Update</string>
@@ -122,6 +123,24 @@
     <string name="home_uptime_minutes">%1$dm</string>
     <string name="home_uptime_hours_minutes">%1$dh %2$dm</string>
     <string name="home_uptime_days_hours">%1$dd %2$dh</string>
+    <string name="home_startup_cleaning">Cleaning up</string>
+    <string name="home_startup_reconnecting">Reconnecting</string>
+    <string name="home_startup_preparing">Preparing</string>
+    <string name="home_startup_establishing_vpn">Creating VPN</string>
+    <string name="home_startup_starting_core">Starting core</string>
+    <string name="home_startup_transforming">Applying overrides</string>
+    <string name="home_startup_parsing">Parsing config</string>
+    <string name="home_startup_downloading_geo">Downloading Geo data</string>
+    <string name="home_startup_loading_geo">Loading Geo rules</string>
+    <string name="home_startup_loading_geo_progress">Loading Geo rules (%1$d/%2$d)</string>
+    <string name="home_startup_starting_listeners">Starting listeners</string>
+    <string name="home_startup_loading_proxy_providers">Loading proxy providers</string>
+    <string name="home_startup_loading_proxy_providers_progress">Loading proxies (%1$d/%2$d)</string>
+    <string name="home_startup_loading_rule_providers">Loading rule sets</string>
+    <string name="home_startup_loading_rule_providers_progress">Loading rules (%1$d/%2$d)</string>
+    <string name="home_startup_downloading_ui">Downloading Web UI</string>
+    <string name="home_startup_starting_dns">Starting DNS</string>
+    <string name="home_startup_applying_rules">Applying routing</string>
 
     <!-- Home - Action Buttons -->
     <string name="home_restart">Restart</string>
@@ -268,6 +287,16 @@
     <string name="log_no_match">No matching results</string>
     <string name="log_waiting">Waiting for logs...</string>
     <string name="log_not_connected">Not connected</string>
+    <string name="log_disabled">Logging disabled</string>
+    <string name="log_disabled_hint">Log level is set to silent. Enable it in your config or Override Settings.</string>
+    <string name="log_detail_title">Log Details</string>
+    <string name="log_detail_level">Level</string>
+    <string name="log_detail_protocol">Protocol</string>
+    <string name="log_detail_source">Source</string>
+    <string name="log_detail_target">Target</string>
+    <string name="log_detail_rule">Rule</string>
+    <string name="log_detail_proxy">Proxy</string>
+    <string name="log_detail_raw">Raw</string>
 
     <!-- DNS -->
     <string name="dns_title">DNS Query</string>

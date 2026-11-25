@@ -90,6 +90,7 @@
     <string name="refresh_complete">刷新完成</string>
     <string name="common_more">更多</string>
     <string name="common_close">关闭</string>
+    <string name="common_copy">复制</string>
     <string name="common_delete">删除</string>
     <string name="common_edit">编辑</string>
     <string name="common_update">更新</string>
@@ -120,6 +121,24 @@
     <string name="home_uptime_minutes">%1$d 分钟</string>
     <string name="home_uptime_hours_minutes">%1$d 小时 %2$d 分</string>
     <string name="home_uptime_days_hours">%1$d 天 %2$d 时</string>
+    <string name="home_startup_cleaning">清理残留状态</string>
+    <string name="home_startup_reconnecting">重连内核</string>
+    <string name="home_startup_preparing">准备运行环境</string>
+    <string name="home_startup_establishing_vpn">建立 VPN 通道</string>
+    <string name="home_startup_starting_core">启动内核</string>
+    <string name="home_startup_transforming">应用覆写规则</string>
+    <string name="home_startup_parsing">解析配置</string>
+    <string name="home_startup_downloading_geo">下载 Geo 数据</string>
+    <string name="home_startup_loading_geo">加载 Geo 规则</string>
+    <string name="home_startup_loading_geo_progress">加载 Geo 规则 (%1$d/%2$d)</string>
+    <string name="home_startup_starting_listeners">启动监听服务</string>
+    <string name="home_startup_loading_proxy_providers">加载节点源</string>
+    <string name="home_startup_loading_proxy_providers_progress">加载节点源 (%1$d/%2$d)</string>
+    <string name="home_startup_loading_rule_providers">加载规则集</string>
+    <string name="home_startup_loading_rule_providers_progress">加载规则集 (%1$d/%2$d)</string>
+    <string name="home_startup_downloading_ui">下载外部面板</string>
+    <string name="home_startup_starting_dns">启动 DNS 服务</string>
+    <string name="home_startup_applying_rules">配置路由规则</string>
 
     <!-- Home - Action Buttons -->
     <string name="home_restart">重启</string>
@@ -266,6 +285,16 @@
     <string name="log_no_match">无匹配结果</string>
     <string name="log_waiting">等待日志...</string>
     <string name="log_not_connected">未连接</string>
+    <string name="log_disabled">日志未启用</string>
+    <string name="log_disabled_hint">当前日志等级为 silent，请在配置或覆写设置中启用</string>
+    <string name="log_detail_title">日志详情</string>
+    <string name="log_detail_level">级别</string>
+    <string name="log_detail_protocol">协议</string>
+    <string name="log_detail_source">来源</string>
+    <string name="log_detail_target">目标</string>
+    <string name="log_detail_rule">规则</string>
+    <string name="log_detail_proxy">代理</string>
+    <string name="log_detail_raw">原始日志</string>
 
     <!-- DNS -->
     <string name="dns_title">DNS 查询</string>
